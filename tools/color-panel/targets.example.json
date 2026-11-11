@@ -1,0 +1,22 @@
+{
+  "targets": {
+    "mini2": {
+      "label": "Mini 2 · 6 LED",
+      "serial": "192.0.2.10:5555",
+      "api": "http://192.0.2.10:8099/api/runtime/airplay.airplay-luna",
+      "leds": 6,
+      "matrix": "red",
+      "swap": true,
+      "neutral_black": false
+    },
+    "lite2": {
+      "label": "Lite 2 · 3 LED",
+      "serial": "192.0.2.11:5555",
+      "api": "http://192.0.2.11:8099/api/runtime/airplay.airplay-luna",
+      "leds": 3,
+      "matrix": null,
+      "swap": false,
+      "neutral_black": true
+    }
+  }
+}

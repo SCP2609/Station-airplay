@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Колонки · подбор цвета спектра</title>
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #171c24;
+    --panel2: #1e2530;
+    --line: #2b3442;
+    --text: #e8edf4;
+    --muted: #93a0b4;
+    --accent: #7cc4ff;
+    --good: #67d99a;
+    --warn: #ffc46b;
+    --bad: #ff7a85;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 18px 22px 12px; border-bottom: 1px solid var(--line);
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 18px;
+  }
+  h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: .01em; }
+  header .sub { color: var(--muted); font-size: 12.5px; }
+  header select {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 5px 8px; font-size: 12.5px; cursor: pointer;
+  }
+  header .badge {
+    margin-left: auto; font: 11px var(--mono); color: var(--accent);
+    border: 1px solid #2c4b66; background: #12202c; padding: 3px 8px; border-radius: 999px;
+  }
+  main {
+    display: grid; grid-template-columns: minmax(300px, 1.05fr) minmax(290px, .9fr) minmax(300px, 1fr);
+    gap: 16px; padding: 16px 22px 30px; align-items: start;
+  }
+  section {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px; min-width: 0;
+  }
+  h2 {
+    margin: 0 0 10px; font-size: 12px; text-transform: uppercase;
+    letter-spacing: .12em; color: var(--muted); font-weight: 650;
+  }
+  .drop {
+    position: relative; border: 1.5px dashed #33445a; border-radius: 10px;
+    min-height: 190px; display: grid; place-items: center; text-align: center;
+    cursor: pointer; overflow: hidden; background: #10151c;
+    transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: #121b25; }
+  .drop .hint { color: var(--muted); font-size: 13px; padding: 18px; }
+  .drop .hint b { color: var(--text); display: block; margin-bottom: 4px; font-size: 14px; }
+  .stage { position: relative; width: 100%; display: none; }
+  .stage.show { display: block; }
+  .stage canvas { display: block; width: 100%; height: auto; border-radius: 8px; }
+  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .presets button {
+    border: 1px solid var(--line); background: var(--panel2); color: var(--text);
+    border-radius: 8px; padding: 6px 9px; font-size: 12px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .presets button:hover { border-color: #47617e; }
+  .presets .dot { width: 11px; height: 11px; border-radius: 50%; border: 1px solid #0006; }
+  .fileline { margin-top: 10px; color: var(--muted); font: 11.5px var(--mono); min-height: 16px; word-break: break-all; }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; margin: 9px 0; }
+  .row label { color: #c5cfdd; font-size: 12.5px; }
+  .row output { font: 11.5px var(--mono); color: var(--accent); }
+  .row input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); height: 18px; }
+  .toggle { display: flex; align-items: center; gap: 8px; margin: 10px 0 2px; color: #c5cfdd; font-size: 12.5px; }
+  .toggle input { accent-color: var(--accent); width: 16px; height: 16px; }
+  .analysis { display: grid; grid-template-columns: 84px 1fr; gap: 12px; align-items: start; }
+  .swatch {
+    width: 84px; height: 84px; border-radius: 10px; border: 1px solid #0008;
+    box-shadow: inset 0 0 0 1px #fff1;
+  }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; font-size: 12.5px; }
+  .kv .k { color: var(--muted); }
+  .kv .v { font-family: var(--mono); }
+  .decision { margin-top: 10px; font-size: 13px; }
+  .decision b { font-weight: 650; }
+  .logline {
+    margin-top: 10px; padding: 8px 10px; background: #0c1016; border: 1px solid var(--line);
+    border-radius: 8px; font: 11.5px/1.5 var(--mono); color: #a9bdd4; word-break: break-all;
+  }
+  .ringwrap { display: flex; gap: 16px; align-items: center; justify-content: center; margin: 8px 0 4px; }
+  .ring { position: relative; width: 190px; height: 190px; }
+  .ring .led {
+    position: absolute; width: 58px; height: 58px; border-radius: 50%;
+    transform: translate(-50%, -50%); border: 1px solid #000a;
+    box-shadow: 0 0 18px currentColor, inset 0 0 10px #fff2;
+    transition: background .08s linear;
+  }
+  .bars { display: flex; gap: 5px; align-items: flex-end; height: 110px; }
+  .bars i {
+    display: block; width: 16px; height: 90px; border-radius: 4px;
+    background: #222c38; position: relative; overflow: hidden;
+  }
+  .bars i::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+    height: var(--h, 0%); background: var(--c, #666); transition: height .08s linear;
+  }
+  .hexrow { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
+  .hexrow code { font: 10.5px var(--mono); color: var(--muted); background: #0c1016; padding: 2px 5px; border-radius: 5px; }
+  .playbar { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 8px; }
+  .playbar button {
+    border: 1px solid var(--line); background: var(--panel2); color: var(--text);
+    border-radius: 8px; padding: 7px 12px; font-size: 12.5px; cursor: pointer;
+  }
+  .playbar button.on { border-color: #2f6b4d; background: #153025; color: var(--good); }
+  .playbar .lvl { color: var(--muted); font: 11.5px var(--mono); }
+  .note { color: var(--muted); font-size: 11.5px; margin-top: 10px; line-height: 1.5; }
+  #livestatus.ok { color: var(--good); }
+  #livestatus.bad { color: var(--bad); }
+  .band { display: grid; grid-template-columns: 42px 1fr 44px; gap: 8px; align-items: center; margin: 5px 0; font-size: 11.5px; color: var(--muted); }
+  .band input { width: 100%; accent-color: var(--accent); }
+  .band output { font: 11px var(--mono); text-align: right; }
+  .warn { color: var(--warn); }
+  .good { color: var(--good); }
+  @media (max-width: 1080px) {
+    main { grid-template-columns: 1fr 1fr; }
+    section:nth-child(3) { grid-column: 1 / -1; }
+  }
+  @media (max-width: 720px) {
+    main { grid-template-columns: 1fr; padding: 12px; }
+    section:nth-child(3) { grid-column: auto; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Колонки · подбор цвета спектра</h1>
+  <span class="sub">загрузка обложки → доминирующий цвет → светодиоды</span>
+  <select id="target" title="Куда отправлять тестовый кадр"></select>
+  <span class="badge">фото не уходит; кадр — только на выбранную колонку</span>
+</header>
+
+<main>
+  <section>
+    <h2>1 · Обложка</h2>
+    <div id="drop" class="drop" tabindex="0">
+      <div class="hint" id="hint"><b>Перетащите фото сюда</b>или нажмите, чтобы выбрать файл<br><span style="font-size:11.5px">PNG / JPEG · можно вставить из буфера</span></div>
+      <div class="stage" id="stage">
+        <canvas id="photo"></canvas>
+        <canvas id="overlay"></canvas>
+      </div>
+    </div>
+    <input id="file" type="file" accept="image/*" hidden>
+    <div class="presets" id="presets"></div>
+    <div class="fileline" id="fileline">демо: цветная обложка</div>
+  </section>
+
+  <section>
+    <h2>2 · Параметры</h2>
+    <div class="row"><label for="boost">Насыщенность обложки</label><output id="boostv">+22%</output>
+      <input id="boost" type="range" min="0" max="60" step="1" value="22"></div>
+    <div class="row"><label for="gamma">Контраст спектра (гамма)</label><output id="gammav">1.3</output>
+      <input id="gamma" type="range" min="0.7" max="2.2" step="0.05" value="1.3"></div>
+    <div class="row"><label for="floor">Нижний порог бара</label><output id="floorv">0.065</output>
+      <input id="floor" type="range" min="0" max="0.25" step="0.005" value="0.065"></div>
+    <div class="row"><label for="gain">Общий множитель яркости</label><output id="gainv">1.25</output>
+      <input id="gain" type="range" min="0.5" max="2" step="0.05" value="1.25"></div>
+    <div class="row"><label for="gainr">Баланс белого · R</label><output id="gainrv">1.50</output>
+      <input id="gainr" type="range" min="0.5" max="1.5" step="0.01" value="1.5"></div>
+    <div class="row"><label for="gaing">Баланс белого · G</label><output id="gaingv">0.50</output>
+      <input id="gaing" type="range" min="0.5" max="1.5" step="0.01" value="0.5"></div>
+    <div class="row"><label for="gainb">Баланс белого · B</label><output id="gainbv">0.71</output>
+      <input id="gainb" type="range" min="0.5" max="1.5" step="0.01" value="0.71"></div>
+    <div class="note" style="margin-top:2px">Баланс белого влияет только на кадр, который уходит на колонку; превью показывает исходный цвет обложки.</div>
+    <div class="row"><label for="level">Уровень громкости</label><output id="levelv">200</output>
+      <input id="level" type="range" min="0" max="255" step="1" value="200"></div>
+    <div class="row"><label for="dark">Порог «чёрного» пикселя</label><output id="darkv">0.12</output>
+      <input id="dark" type="range" min="0.02" max="0.35" step="0.01" value="0.12"></div>
+    <div class="row"><label for="neutral">Порог нейтрального пикселя</label><output id="neutralv">0.15</output>
+      <input id="neutral" type="range" min="0.05" max="0.6" step="0.01" value="0.15"></div>
+    <div class="row"><label for="coh">Связность оттенка</label><output id="cohv">0.20</output>
+      <input id="coh" type="range" min="0.05" max="0.9" step="0.01" value="0.20"></div>
+    <label class="toggle"><input id="dots" type="checkbox" checked> Показывать точки, откуда берётся цвет</label>
+    <div class="note">Порог «нейтрального» = когда обложка считается серой и не получает оттенок. Насыщенность +22% применяется только к цветным обложкам.</div>
+  </section>
+
+  <section>
+    <h2>3 · Результат и кольцо</h2>
+    <div class="analysis">
+      <div id="swatch" class="swatch" style="background:#812c09"></div>
+      <div>
+        <div class="kv">
+          <span class="k">доминирующий</span><span class="v" id="hex">#812C09</span>
+          <span class="k">насыщенность</span><span class="v" id="sat">0.93</span>
+          <span class="k">яркость V</span><span class="v" id="val">0.51</span>
+          <span class="k">средняя яркость</span><span class="v" id="luma">0.42</span>
+          <span class="k">тип</span><span class="v" id="kind">цветная</span>
+        </div>
+        <div class="decision" id="decision">Цветной оттенок: кольцо красится в цвет обложки.</div>
+      </div>
+    </div>
+    <div class="logline" id="logline">airplay spectrum: cover RGB #812C09 saturation 0.93</div>
+
+    <div class="ringwrap">
+      <div class="ring" id="ring"></div>
+      <div class="bars" id="bars"></div>
+    </div>
+    <div class="hexrow" id="hexrow"></div>
+
+    <div class="playbar">
+      <button id="play" class="on">▶ пульсация</button>
+      <button id="live" title="Отправить текущий кадр на Mini 2">показать на колонке</button>
+      <button id="liveoff" title="Погасить тестовый кадр">погасить</button>
+      <button id="reset">сбросить параметры</button>
+    </div>
+    <div class="note" id="livestatus">кнопка работает, когда AirPlay на паузе; при воспроизведении плагин перезапишет кадр</div>
+    <div class="note" id="paramsummary" title="нажми, чтобы скопировать" style="cursor:pointer;font-family:var(--mono);color:#9fb3c8"></div>
+
+    <details style="margin-top:12px">
+      <summary style="cursor:pointer;color:var(--muted);font-size:12px">Ручные полосы (если пауза)</summary>
+      <div id="bands" style="margin-top:8px"></div>
+    </details>
+
+    <div class="note">Панель повторяет алгоритм: 64×64 выборка, ячейка 8×8×8 RGB, усреднение соседних пикселей (радиус 0.16). Смена обложки в прошивке теперь ~0,6 с (было 2 с). Кольцо — 3 LED у кухни и 6 у Mini 2; red-матрица применяется только к Mini 2. Реальная яркость и диффузор здесь не имитируются.</div>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const photo = $("photo");
+  const overlay = $("overlay");
+  const pctx = photo.getContext("2d", { willReadFrequently: true });
+  const octx = overlay.getContext("2d");
+  const ring = $("ring");
+  const bars = $("bars");
+  const hexrow = $("hexrow");
+  const bandsBox = $("bands");
+  // Fallback labels for a static preview. The bridge replaces this from
+  // targets.json via /api/targets when it is running.
+  let TARGETS = {
+    lite2: { label: "Lite 2 · 3 LED", leds: 3, neutralBlack: true },
+    mini2: { label: "Mini 2 · 6 LED", leds: 6, neutralBlack: false },
+  };
+  let TARGET = "lite2";
+  let LED_COUNT = TARGETS[TARGET].leds;
+
+  const state = {
+    img: null,
+    imgName: "",
+    points: [],
+    sample: null,
+    used: new Set(),
+    bin: new Set(),
+    anim: true,
+    bands: [0.72, 0.55, 0.38, 0.2],
+    phase: 0,
+    params: {
+      boost: 0.22,
+      gamma: 1.3,
+      floor: 0.065,
+      gain: 1.25,
+      gainR: 1.5,
+      gainG: 0.5,
+      gainB: 0.71,
+      level: 200,
+      dark: 0.12,
+      neutral: 0.15,
+      coherence: 0.20,
+      dots: true,
+    },
+    result: null,
+  };
+
+  // ---------- colour helpers ----------
+  function rgbHSV(r, g, b) {
+    const max = Math.max(r, Math.max(g, b));
+    const min = Math.min(r, Math.min(g, b));
+    const v = max;
+    if (max <= 0) return [0, 0, 0];
+    const s = (max - min) / max;
+    const d = max - min;
+    if (d <= 0) return [0, s, v];
+    let h;
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+    return [h, s, v];
+  }
+
+  function hsvRGB(h, s, v) {
+    s = clamp(s, 0, 1); v = clamp(v, 0, 1);
+    if (s <= 0) return [v, v, v];
+    h = ((h % 360) + 360) % 360 / 60;
+    const i = Math.floor(h);
+    const f = h - i;
+    const p = v * (1 - s);
+    const q = v * (1 - s * f);
+    const t = v * (1 - s * (1 - f));
+    switch (i) {
+      case 0: return [v, t, p];
+      case 1: return [q, v, p];
+      case 2: return [p, v, t];
+      case 3: return [p, q, v];
+      case 4: return [t, p, v];
+      default: return [v, p, q];
+    }
+  }
+
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  const hex = (rgb) => "#" + rgb.map((x) => clamp(Math.round(x), 0, 255).toString(16).padStart(2, "0")).join("");
+  const fmt = (x, n = 2) => x.toFixed(n);
+
+  function boostSaturation(rgb, amount, threshold) {
+    const [h, s, v] = rgbHSV(rgb[0], rgb[1], rgb[2]);
+    if (s < threshold) return rgb.slice();
+    return hsvRGB(h, Math.min(1, s * (1 + amount)), v);
+  }
+
+  // ---------- dominant colour ----------
+  function analyze(img) {
+    const W = img.naturalWidth || img.width;
+    const H = img.naturalHeight || img.height;
+    if (!W || !H) return null;
+
+    const c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    const data = ctx.getImageData(0, 0, W, H).data;
+
+    const sx = Math.max(1, Math.floor(W / 64));
+    const sy = Math.max(1, Math.floor(H / 64));
+    const bins = new Array(512);
+    const points = [];
+    let sumV = 0, samples = 0, darkCount = 0, neutralCount = 0;
+
+    for (let y = 0; y < H; y += sy) {
+      for (let x = 0; x < W; x += sx) {
+        const i = (y * W + x) * 4;
+        const a = data[i + 3];
+        if (!a) continue;
+        const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+        const [, s, v] = rgbHSV(r, g, b);
+        sumV += v; samples++;
+        if (v < state.params.dark) darkCount++;
+        if (s < 0.10) neutralCount++;
+        const qr = Math.min(7, Math.floor(r * 8));
+        const qg = Math.min(7, Math.floor(g * 8));
+        const qb = Math.min(7, Math.floor(b * 8));
+        const idx = qr * 64 + qg * 8 + qb;
+        if (!bins[idx]) bins[idx] = { count: 0, sum: [0, 0, 0] };
+        bins[idx].count++;
+        bins[idx].sum[0] += r; bins[idx].sum[1] += g; bins[idx].sum[2] += b;
+        points.push({ x, y, r, g, b, s, v, idx });
+      }
+    }
+    if (!samples) return null;
+
+    let winner = 0;
+    for (let i = 1; i < 512; i++) {
+      if (bins[i] && (!bins[winner] || bins[i].count > bins[winner].count)) winner = i;
+    }
+    if (!bins[winner]) return null;
+    const center = bins[winner].sum.map((x) => x / bins[winner].count);
+
+    let used = 0;
+    const sum = [0, 0, 0];
+    const usedSet = new Set();
+    for (let k = 0; k < points.length; k++) {
+      const p = points[k];
+      const d = (p.r - center[0]) ** 2 + (p.g - center[1]) ** 2 + (p.b - center[2]) ** 2;
+      if (d > 0.16 * 0.16) continue;
+      used++; usedSet.add(k);
+      sum[0] += p.r; sum[1] += p.g; sum[2] += p.b;
+    }
+    let rgb = sum.map((x) => x / used);
+    let black = false;
+    if (Math.max(rgb[0], rgb[1], rgb[2]) < state.params.dark) {
+      rgb = [0, 0, 0];
+      black = true;
+    }
+
+    const [hue, sat, val] = rgbHSV(rgb[0], rgb[1], rgb[2]);
+    const chromatic = !black && sat >= state.params.neutral;
+    let finalRGB = rgb;
+    if (chromatic) finalRGB = boostSaturation(rgb, state.params.boost, state.params.neutral);
+    else if (!black) finalRGB = rgb.slice();
+
+    // Coherence is informational in this panel: the real code also requires
+    // the hue vector to be long enough. Compute it the same way.
+    let sxv = 0, syv = 0, weight = 0;
+    for (const p of points) {
+      if (p.s < state.params.neutral || p.v < state.params.dark) continue;
+      weight += p.s * p.v;
+      const a = rgbHSV(p.r, p.g, p.b)[0] * Math.PI / 180;
+      sxv += Math.cos(a) * p.s * p.v;
+      syv += Math.sin(a) * p.s * p.v;
+    }
+    const strength = weight ? Math.hypot(sxv, syv) / weight : 0;
+    const greyBackground = darkCount / samples >= 0.60;
+    const mostlyNeutral = neutralCount / samples >= 0.65;
+    const coherent = strength >= state.params.coherence;
+
+    return {
+      W, H, sx, sy, points, usedSet, winner, center, rgb, finalRGB,
+      hue, sat, val, luma: sumV / samples,
+      chromatic, black, strength, greyBackground, mostlyNeutral, coherent,
+      samples, used, size: W * H,
+    };
+  }
+
+  // ---------- rendering ----------
+  function drawPhoto() {
+    if (!state.img) return;
+    const maxW = 520;
+    const iw = state.img.naturalWidth || state.img.width;
+    const ih = state.img.naturalHeight || state.img.height;
+    const scale = Math.min(1, maxW / iw);
+    photo.width = Math.max(1, Math.round(iw * scale));
+    photo.height = Math.max(1, Math.round(ih * scale));
+    pctx.drawImage(state.img, 0, 0, photo.width, photo.height);
+    overlay.width = photo.width;
+    overlay.height = photo.height;
+    const box = overlay.getBoundingClientRect();
+    overlay.style.width = "100%";
+    overlay.style.height = "100%";
+    drawOverlay();
+  }
+
+  function drawOverlay() {
+    octx.clearRect(0, 0, overlay.width, overlay.height);
+    if (!state.result || !state.params.dots) return;
+    const { points, usedSet, sx, sy } = state.result;
+    const scaleX = overlay.width / state.result.W;
+    const scaleY = overlay.height / state.result.H;
+    const maxDots = 500;
+    const stride = Math.max(1, Math.ceil(points.length / maxDots));
+
+    // Soft veil over the pixels that were averaged into the chosen colour.
+    octx.fillStyle = "rgba(255,255,255,.10)";
+    const bw = Math.max(1, sx * scaleX + 0.4);
+    const bh = Math.max(1, sy * scaleY + 0.4);
+    for (let k = 0; k < points.length; k++) {
+      if (!usedSet.has(k)) continue;
+      const p = points[k];
+      octx.fillRect(p.x * scaleX, p.y * scaleY, bw, bh);
+    }
+    // Sparse blue dots show the 64x64 sampling grid.
+    octx.fillStyle = "rgba(124,196,255,.40)";
+    for (let k = 0; k < points.length; k += stride) {
+      if (usedSet.has(k)) continue;
+      const p = points[k];
+      octx.beginPath();
+      octx.arc((p.x + 0.5) * scaleX, (p.y + 0.5) * scaleY, 1.0, 0, Math.PI * 2);
+      octx.fill();
+    }
+  }
+
+  function makeRing() {
+    ring.innerHTML = "";
+    const cx = 95, cy = 95, r = 66;
+    for (let i = 0; i < LED_COUNT; i++) {
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / LED_COUNT;
+      const el = document.createElement("i");
+      el.className = "led";
+      el.style.left = (cx + r * Math.cos(a)) + "px";
+      el.style.top = (cy + r * Math.sin(a)) + "px";
+      el.style.background = "#111";
+      ring.appendChild(el);
+    }
+    bars.innerHTML = "";
+    for (let i = 0; i < LED_COUNT; i++) {
+      const el = document.createElement("i");
+      bars.appendChild(el);
+    }
+  }
+
+  function bandValue(i, n) {
+    if (n <= 1) return 0;
+    return Math.min(3, Math.floor((i * 3) / (n - 1)));
+  }
+
+  function frameColours(n, level, balance) {
+    const r = state.result;
+    if (!r) return [];
+    const p = state.params;
+    const scale = level <= 0 ? 1 : Math.min(1, level / 200);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const band = bandValue(i, n);
+      let value = (p.floor + Math.pow(clamp(state.bands[band], 0, 1), p.gamma) * 0.9) * scale;
+      if (p.gain !== 1 && !r.black) value *= p.gain;
+      value = Math.min(1, value);
+      let rgb;
+      if (r.black) {
+        // Mini 2 keeps its deliberately dim blue-grey fallback; Lite 2 has
+        // shown that as blue, so a black cover is really off there.
+        rgb = TARGETS[TARGET].neutralBlack ? [0, 0, 0] : [24, 32, 48].map((x) => x * value);
+      } else {
+        // Colour is boosted for chromatic covers; neutral covers keep their
+        // own RGB ratios (white, grey, cream). Per-channel gains neutralise
+        // the stock LED white balance.
+        rgb = r.finalRGB.map((x) => x * value * 255);
+        if (balance) {
+          rgb = [rgb[0] * p.gainR, rgb[1] * p.gainG, rgb[2] * p.gainB];
+        }
+      }
+      rgb = rgb.map((x) => clamp(Math.floor(x), 0, 255));
+      out.push(rgb);
+    }
+    return out;
+  }
+
+  function render() {
+    const r = state.result;
+    if (!r) return;
+    const p = state.params;
+    const colours = frameColours(LED_COUNT, p.level, false);
+
+    // swatch & numbers — show boosted result
+    const shown = r.black ? [0, 0, 0] : r.finalRGB.map((x) => clamp(Math.round(x * 255), 0, 255));
+    $("swatch").style.background = hex(shown);
+    $("hex").textContent = r.black ? "#000000" : hex(shown).toUpperCase();
+    $("sat").textContent = fmt(r.sat);
+    $("val").textContent = fmt(r.val);
+    $("luma").textContent = fmt(r.luma);
+    $("kind").textContent = r.black ? "чёрная" : r.chromatic ? "цветная" : "нейтральная";
+
+    const d = $("decision");
+    if (r.black) {
+      d.innerHTML = '<b class="warn">Чёрная обложка.</b> Кольцо почти выключено, только очень тёмный сине-серый пульс.';
+    } else if (r.chromatic && r.coherent && !r.greyBackground && !r.mostlyNeutral) {
+      d.innerHTML = '<b class="good">Цветная обложка.</b> Кольцо красится в её цвет; насыщенность усилена на ' + Math.round(p.boost * 100) + '%.';
+    } else if (r.chromatic) {
+      d.innerHTML = '<b class="warn">Цвет есть, но фон/связность не проходят.</b> В прошивке такая обложка останется серой.';
+    } else {
+      d.innerHTML = '<b>Нейтральная обложка.</b> Кольцо сохраняет её собственный цвет (белый, серый, кремовый) и пульсирует от чёрного к её яркости.';
+    }
+
+    const original = r.black ? "#000000" : hex(r.rgb.map((x) => x * 255)).toUpperCase();
+    $("logline").textContent =
+      "airplay spectrum: cover RGB " + original + " saturation " + fmt(r.sat) +
+      " · после +" + Math.round(p.boost * 100) + "% → " +
+      (r.black ? "#000000" : hex(shown).toUpperCase());
+
+    // ring
+    const leds = ring.querySelectorAll(".led");
+    leds.forEach((el, i) => {
+      const c = colours[i];
+      el.style.background = hex(c);
+      el.style.color = hex(c);
+    });
+
+    // bars
+    const barEls = bars.querySelectorAll("i");
+    barEls.forEach((el, i) => {
+      const c = colours[i];
+      el.style.setProperty("--c", hex(c));
+      const v = Math.max(c[0], c[1], c[2]) / 255;
+      el.style.setProperty("--h", Math.round(v * 100) + "%");
+    });
+
+    // hex row
+    hexrow.innerHTML = colours.map((c) => "<code>" + hex(c).toUpperCase() + "</code>").join("");
+    drawOverlay();
+  }
+
+  function recompute() {
+    if (!state.img) return;
+    state.result = analyze(state.img);
+    if (!state.result) return;
+    state.sample = state.result;
+    drawPhoto();
+    render();
+  }
+
+  // ---------- animation / bands ----------
+  let last = 0;
+  function tick(ts) {
+    if (state.anim) {
+      const dt = Math.min(0.05, (ts - last) / 1000 || 0.016);
+      last = ts;
+      state.phase += dt;
+      const t = state.phase;
+      state.bands = [
+        clamp(0.55 + 0.36 * Math.sin(t * 1.9) + 0.09 * Math.sin(t * 5.7 + 1.2), 0.03, 1),
+        clamp(0.50 + 0.34 * Math.sin(t * 1.55 + 1.5) + 0.10 * Math.sin(t * 4.9), 0.03, 1),
+        clamp(0.44 + 0.31 * Math.sin(t * 2.25 + 3.0) + 0.09 * Math.sin(t * 6.3), 0.03, 1),
+        clamp(0.38 + 0.30 * Math.sin(t * 1.2 + 4.4) + 0.08 * Math.sin(t * 3.7), 0.03, 1),
+      ];
+      render();
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // ---------- controls ----------
+  const PARAM_KEY = "mini2-spectrum-params-v2";
+  const ranges = [
+    ["boost", "boost", 100, (v) => "+" + v + "%"],
+    ["gamma", "gamma", 1, (v) => Number(v).toFixed(2)],
+    ["floor", "floor", 1, (v) => Number(v).toFixed(3)],
+    ["gain", "gain", 1, (v) => Number(v).toFixed(2)],
+    ["gainr", "gainR", 1, (v) => Number(v).toFixed(2)],
+    ["gaing", "gainG", 1, (v) => Number(v).toFixed(2)],
+    ["gainb", "gainB", 1, (v) => Number(v).toFixed(2)],
+    ["level", "level", 1, (v) => v],
+    ["dark", "dark", 1, (v) => Number(v).toFixed(2)],
+    ["neutral", "neutral", 1, (v) => Number(v).toFixed(2)],
+    ["coh", "coherence", 1, (v) => Number(v).toFixed(2)],
+  ];
+  const defaults = { boost: 22, gamma: 1.3, floor: 0.065, gain: 1.25, gainr: 1.5, gaing: 0.5, gainb: 0.71, level: 200, dark: 0.12, neutral: 0.15, coh: 0.20 };
+
+  function paramState() {
+    return {
+      target: TARGET,
+      boost: state.params.boost,
+      gamma: state.params.gamma,
+      floor: state.params.floor,
+      gain: state.params.gain,
+      gainR: state.params.gainR,
+      gainG: state.params.gainG,
+      gainB: state.params.gainB,
+      level: state.params.level,
+      dark: state.params.dark,
+      neutral: state.params.neutral,
+      coherence: state.params.coherence,
+      dots: state.params.dots,
+    };
+  }
+
+  function paramText() {
+    const p = state.params;
+    const where = TARGETS[TARGET].label;
+    return "колонка " + where + " · boost +" + Math.round(p.boost * 100) + "% · gamma " + p.gamma.toFixed(2) +
+      " · floor " + p.floor.toFixed(3) + " · gain " + p.gain.toFixed(2) +
+      " · rgb " + p.gainR.toFixed(2) + "/" + p.gainG.toFixed(2) + "/" + p.gainB.toFixed(2) +
+      " · level " + p.level + " · dark " + p.dark.toFixed(2) +
+      " · neutral " + p.neutral.toFixed(2) + " · coh " + p.coherence.toFixed(2) +
+      " · dots " + (p.dots ? "on" : "off");
+  }
+
+  function updateSummary() {
+    $("paramsummary").textContent = "значения: " + paramText();
+  }
+
+  function saveParams() {
+    try { localStorage.setItem(PARAM_KEY, JSON.stringify(paramState())); } catch (_) { /* private mode */ }
+    updateSummary();
+  }
+
+  function applyTarget(name, persist) {
+    TARGET = TARGETS[name] ? name : "lite2";
+    LED_COUNT = TARGETS[TARGET].leds;
+    const select = $("target");
+    if (select) select.value = TARGET;
+    makeRing();
+    if (state.result) render();
+    updateSummary();
+    if (persist) saveParams();
+  }
+
+  ranges.forEach(([id, key, div, label]) => {
+    const el = $(id);
+    const out = $(id + "v");
+    const apply = () => {
+      const raw = Number(el.value);
+      state.params[key] = raw / div;
+      out.textContent = label(el.value);
+      if (key !== "level") recompute(); else render();
+    };
+    el.addEventListener("input", () => { apply(); saveParams(); });
+    apply();
+  });
+
+  $("dots").addEventListener("change", (e) => {
+    state.params.dots = e.target.checked;
+    saveParams();
+    drawOverlay();
+  });
+
+
+  $("play").addEventListener("click", (e) => {
+    state.anim = !state.anim;
+    e.target.classList.toggle("on", state.anim);
+    e.target.textContent = state.anim ? "▶ пульсация" : "⏸ пауза";
+  });
+
+  function setLiveStatus(text, kind) {
+    const el = $("livestatus");
+    el.textContent = text;
+    el.className = "note" + (kind ? " " + kind : "");
+  }
+
+  $("target").addEventListener("change", (e) => {
+    applyTarget(e.target.value, true);
+    setLiveStatus(
+      TARGETS[TARGET].neutralBlack
+        ? "выбрано: " + TARGETS[TARGET].label + " · без red-матрицы"
+        : "выбрано: " + TARGETS[TARGET].label + " · мост применяет red-матрицу"
+    );
+  });
+
+  $("paramsummary").addEventListener("click", async () => {
+    const text = paramText();
+    try {
+      await navigator.clipboard.writeText(text);
+      setLiveStatus("значения скопированы", "ok");
+    } catch (_) {
+      setLiveStatus("не удалось скопировать автоматически: " + text, "bad");
+    }
+  });
+
+  async function postPreview(path, payload) {
+    const r = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    let j;
+    try { j = await r.json(); } catch (_) { throw new Error("мост вернул не JSON"); }
+    if (!j.ok) throw new Error(j.error || ("HTTP " + r.status));
+    return j;
+  }
+
+  $("live").addEventListener("click", async () => {
+    // Freeze the animation so the frame on the device matches what is shown.
+    if (state.anim) {
+      state.anim = false;
+      $("play").classList.remove("on");
+      $("play").textContent = "▶ пульсация";
+    }
+    const colors = frameColours(LED_COUNT, state.params.level, true).map(hex);
+    const where = TARGETS[TARGET].label;
+    setLiveStatus("отправляю: " + where + "…");
+    try {
+      const j = await postPreview("/api/preview", { device: TARGET, colors, params: paramState() });
+      setLiveStatus(
+        j.playing
+          ? "отправлено, но AirPlay играет — плагин скоро перезапишет кадр"
+          : "отправлено: " + where +
+            (TARGETS[TARGET].neutralBlack ? " · без матрицы" : " · red-матрица"),
+        j.playing ? "bad" : "ok"
+      );
+    } catch (e) {
+      setLiveStatus("не отправлено: " + (e.message || e), "bad");
+    }
+  });
+
+  $("liveoff").addEventListener("click", async () => {
+    const where = TARGETS[TARGET].label;
+    setLiveStatus("гашу: " + where + "…");
+    try {
+      await postPreview("/api/preview/off", { device: TARGET });
+      setLiveStatus("погашено: " + where, "ok");
+    } catch (e) {
+      setLiveStatus("не удалось погасить: " + (e.message || e), "bad");
+    }
+  });
+
+  $("reset").addEventListener("click", () => {
+    for (const [id, val] of Object.entries(defaults)) $(id).value = val;
+    $("dots").checked = true;
+    state.params.dots = true;
+    ranges.forEach(([id, key, div, label]) => {
+      const raw = Number($(id).value);
+      state.params[key] = raw / div;
+      $(id + "v").textContent = label($(id).value);
+    });
+    state.params.boost = 0.22;
+    recompute();
+    saveParams();
+  });
+
+  // ---------- bands UI ----------
+  const bandNames = ["низ", "низ-сред", "сред-верх", "верх"];
+  state.bands.forEach((v, i) => {
+    const row = document.createElement("div");
+    row.className = "band";
+    row.innerHTML = '<span>' + bandNames[i] + '</span><input type="range" min="0" max="1" step="0.01" value="' + v +
+      '"><output>' + Math.round(v * 100) + '%</output>';
+    const input = row.querySelector("input");
+    const out = row.querySelector("output");
+    input.addEventListener("input", () => {
+      state.bands[i] = Number(input.value);
+      out.textContent = Math.round(input.value * 100) + "%";
+      state.anim = false;
+      $("play").classList.remove("on");
+      $("play").textContent = "▶ пульсация";
+      render();
+    });
+    bandsBox.appendChild(row);
+  });
+
+  // ---------- presets ----------
+  function presetCanvas(kind) {
+    const c = document.createElement("canvas");
+    c.width = c.height = 256;
+    const x = c.getContext("2d");
+    if (kind === "gradient") {
+      const g = x.createLinearGradient(0, 0, 256, 256);
+      g.addColorStop(0, "#1b2b44"); g.addColorStop(.45, "#b8443a"); g.addColorStop(1, "#e8cf7a");
+      x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+      x.fillStyle = "rgba(255,255,255,.75)"; x.beginPath(); x.arc(190, 66, 30, 0, 7); x.fill();
+      x.fillStyle = "rgba(10,20,30,.65)"; x.fillRect(0, 196, 256, 60);
+    } else if (kind === "photo") {
+      const g = x.createLinearGradient(0, 0, 256, 0);
+      g.addColorStop(0, "#25384f"); g.addColorStop(1, "#0d141c");
+      x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+      x.fillStyle = "#d64b3c"; x.beginPath(); x.arc(128, 118, 64, 0, 7); x.fill();
+      x.fillStyle = "#f0e6cf"; x.font = "bold 30px system-ui"; x.fillText("ALBUM", 62, 226);
+    } else {
+      x.fillStyle = kind; x.fillRect(0, 0, 256, 256);
+    }
+    return c;
+  }
+
+  const presets = [
+    ["Чёрная", "#000000"],
+    ["Белая", "#ffffff"],
+    ["Серая", "#808080"],
+    ["Кремовая", "#f8f2de"],
+    ["Красная", "#d01e28"],
+    ["Синяя", "#1e50c8"],
+    ["Жёлтая", "#ebd465"],
+    ["Зелёная", "#1f8a4c"],
+    ["Градиент", "gradient"],
+    ["Фото", "photo"],
+  ];
+  const presetBox = $("presets");
+  presets.forEach(([name, kind]) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.innerHTML = '<span class="dot" style="background:' + (kind.startsWith("#") ? kind : "#888") + '"></span>' + name;
+    b.addEventListener("click", () => loadImage(presetCanvas(kind), "демо: " + name));
+    presetBox.appendChild(b);
+  });
+
+  function loadImage(img, name) {
+    state.img = img;
+    state.imgName = name;
+    $("drop").classList.add("has");
+    $("stage").classList.add("show");
+    $("hint").style.display = "none";
+    $("fileline").textContent = name;
+    recompute();
+    drawPhoto();
+  }
+
+  function loadFile(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      loadImage(img, file.name);
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+  }
+
+  $("drop").addEventListener("click", () => $("file").click());
+  $("drop").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") $("file").click();
+  });
+  $("file").addEventListener("change", (e) => loadFile(e.target.files[0]));
+  ["dragenter", "dragover"].forEach((ev) =>
+    $("drop").addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) =>
+    $("drop").addEventListener(ev, (e) => { e.preventDefault(); $("drop").classList.remove("over"); }));
+  $("drop").addEventListener("drop", (e) => {
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadFile(f);
+  });
+  window.addEventListener("paste", (e) => {
+    const items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (const it of items) {
+      if (it.type.startsWith("image/")) { loadFile(it.getAsFile()); break; }
+    }
+  });
+
+  (function restoreParams() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(PARAM_KEY) || "null"); } catch (_) { /* ignore */ }
+    if (saved) {
+      ranges.forEach(([id, key, div, label]) => {
+        if (typeof saved[key] !== "number" || !isFinite(saved[key])) return;
+        const el = $(id);
+        el.value = String(saved[key] * div);
+        const raw = Number(el.value);
+        state.params[key] = raw / div;
+        $(id + "v").textContent = label(raw);
+      });
+      if (typeof saved.dots === "boolean") {
+        $("dots").checked = saved.dots;
+        state.params.dots = saved.dots;
+      }
+    }
+    updateSummary();
+  })();
+
+  async function loadTargets() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(PARAM_KEY) || "null"); } catch (_) { /* ignore */ }
+    try {
+      const response = await fetch("/api/targets");
+      if (response.ok) {
+        const data = await response.json();
+        if (data.targets && Object.keys(data.targets).length) {
+          TARGETS = {};
+          for (const [name, target] of Object.entries(data.targets)) {
+            TARGETS[name] = {
+              label: target.label || name,
+              leds: target.leds || 3,
+              neutralBlack: !!target.neutral_black,
+            };
+          }
+        }
+      }
+    } catch (_) { /* static preview only */ }
+    const select = $("target");
+    select.innerHTML = "";
+    for (const [name, target] of Object.entries(TARGETS)) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = target.label;
+      select.appendChild(option);
+    }
+    const pick = saved && TARGETS[saved.target] ? saved.target : Object.keys(TARGETS)[0];
+    if (pick) applyTarget(pick, false);
+  }
+
+  loadTargets().then(() => {
+    makeRing();
+    loadImage(presetCanvas("gradient"), "демо: градиент");
+    requestAnimationFrame((ts) => { last = ts; tick(ts); });
+  });
+})();
+</script>
+</body>
+</html>
