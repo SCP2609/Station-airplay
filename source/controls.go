@@ -18,6 +18,9 @@ import (
 )
 
 type controlsConfig struct {
+	// DefaultsVersion records which release's defaults this file has already
+	// been migrated through; missing means 2.1.4 or older.
+	DefaultsVersion int `json:"defaults_version,omitempty"`
 	// Omitted keeps the LED spectrum on; false restores the solid indication
 	// frames without opening a PCM tap or reading cover art.
 	Spectrum           *bool        `json:"spectrum,omitempty"`

@@ -66,7 +66,7 @@ func (l *boundedLog) Write(b []byte) (int, error) {
 }
 
 func run(ctx context.Context, sharedAudio bool) error {
-	return runWithControls(ctx, sharedAudio, nil)
+	return runWithControls(ctx, sharedAudio, nil, "")
 }
 
 // kernelArch reports the machine the kernel runs, not the userspace ABI this
@@ -87,7 +87,7 @@ func kernelArch() string {
 	return string(b)
 }
 
-func runWithControls(ctx context.Context, sharedAudio bool, controls *controlsConfig) error {
+func runWithControls(ctx context.Context, sharedAudio bool, controls *controlsConfig, controlsPath string) error {
 	api, err := newYAMAPI()
 	if err != nil {
 		return err
@@ -100,6 +100,12 @@ func runWithControls(ctx context.Context, sharedAudio bool, controls *controlsCo
 	})
 	if err != nil {
 		return err
+	}
+	// Existing installs keep their JSON across upgrades. Update the defaults
+	// once per release, but never overwrite a value the owner changed.
+	controls, err = migrateControls(controlsPath, d.Model, controls)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "station-airplay: controls defaults: %v\n", err)
 	}
 	p, ok := profileForDevice(d, sharedAudio)
 	if !ok {

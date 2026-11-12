@@ -896,7 +896,7 @@ func main() {
 	if controls == nil && *controlsPath != "" {
 		fmt.Fprintln(os.Stderr, "controls configuration not found, shared controls disabled:", *controlsPath)
 	}
-	if e := runWithControls(ctx, *sharedAudio, controls); e != nil {
+	if e := runWithControls(ctx, *sharedAudio, controls, *controlsPath); e != nil {
 		fmt.Fprintln(os.Stderr, "station-airplay:", e)
 		os.Exit(1)
 	}
