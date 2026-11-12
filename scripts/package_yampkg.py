@@ -24,6 +24,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_REL = Path("files/share/luna/plugins/airplay.airplay-luna")
 MANIFEST = "MANIFEST.yaml"
+# Distribution archives use a high zstd level: the payload is mostly ELF and
+# HTML/TOML, and decompression stays a single standard zstd stream.
+PACK_ZSTD = "zstd -19 -T0 --zstd=wlog=20"
 CONFIG_KEYS = (
     "voice",
     "native_volume",
@@ -408,7 +411,7 @@ def build_target(target, base_dir, binary, version, out_dir, force, template, ex
         if out.exists() and not force:
             raise SystemExit("%s exists; pass --force to replace it" % out)
         subprocess.run(
-            ["tar", "--zstd", "-cf", str(out), MANIFEST, "files"],
+            ["tar", "-I", PACK_ZSTD, "-cf", str(out), MANIFEST, "files"],
             cwd=stage,
             check=True,
         )
