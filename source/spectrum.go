@@ -55,14 +55,21 @@ type spectrumTap struct {
 	// neutralBlack removes Mini 2's deliberately blue-grey black-cover
 	// fallback. Lite 2 shows that fallback as blue, so it stays truly off.
 	neutralBlack bool
-	mu           sync.Mutex
-	state        airplayState
-	hue          float64
-	haveHue      bool
-	cover        string
-	dir          string
-	rotatedAt    time.Time
-	coverScan    time.Time
+	// blackFloor gives the big Station 2 panel a dim glow for a black cover
+	// instead of a dead ring; ceiling is an optional cap for panels that clip.
+	// satBoost lifts muted artwork (yellow, cream, gradients) without touching
+	// white or grey, because saturated primaries are already at the limit.
+	blackFloor float64
+	ceiling    float64
+	satBoost   float64
+	mu         sync.Mutex
+	state      airplayState
+	hue        float64
+	haveHue    bool
+	cover      string
+	dir        string
+	rotatedAt  time.Time
+	coverScan  time.Time
 	// A sender may update the cached artwork several times per track; only a
 	// stable newest file is adopted so the ring does not flicker between hues.
 	pendingCover string
@@ -313,6 +320,10 @@ func (t *spectrumTap) frame(n int, level uint8) []string {
 	rgb, haveColor := t.coverColor, t.haveCoverColor
 	brightness := t.brightness
 	gain, neutralBlack := t.gain, t.neutralBlack
+	blackFloor, ceiling, satBoost := t.blackFloor, t.ceiling, t.satBoost
+	if satBoost < 1 {
+		satBoost = 1
+	}
 	darkCover := haveColor && rgb == [3]float64{}
 	t.mu.Unlock()
 
@@ -339,19 +350,40 @@ func (t *spectrumTap) frame(n int, level uint8) []string {
 			value *= brightness
 		}
 		value = math.Min(1, value)
+		if ceiling > 0 && ceiling < 1 && value > ceiling {
+			value = ceiling
+		}
 
 		switch {
 		case haveColor:
 			// Mini 2 keeps its deliberately dim blue-grey black fallback.
 			// Lite 2 shows that as blue, so it uses true black instead.
-			if rgb == [3]float64{} && !neutralBlack {
-				rgb = [3]float64{24.0 / 255, 32.0 / 255, 48.0 / 255}
+			cr, cg, cb := rgb[0], rgb[1], rgb[2]
+			intensity := value
+			if rgb != [3]float64{} && satBoost > 1 {
+				// Keep luminance and hue, stretch the distance from grey.
+				l := 0.2126*cr + 0.7152*cg + 0.0722*cb
+				cr = math.Min(1, math.Max(0, l+(cr-l)*satBoost))
+				cg = math.Min(1, math.Max(0, l+(cg-l)*satBoost))
+				cb = math.Min(1, math.Max(0, l+(cb-l)*satBoost))
+			}
+			if rgb == [3]float64{} {
+				switch {
+				case !neutralBlack:
+					cr, cg, cb = 24.0/255, 32.0/255, 48.0/255
+				case blackFloor > 0:
+					// Station 2 has a big panel: a black cover keeps a very
+					// dim violet glow instead of a dead ring, and the beat
+					// lifts it.
+					cr, cg, cb = 0.55, 0.30, 0.85
+					intensity = math.Min(1, blackFloor+value*0.12)
+				}
 			}
 			// Keep the real RGB ratios, apply the per-model white balance, and
 			// let PCM control only the intensity.
-			r := math.Min(1, math.Max(0, rgb[0]*gain[0]*value))
-			g := math.Min(1, math.Max(0, rgb[1]*gain[1]*value))
-			b := math.Min(1, math.Max(0, rgb[2]*gain[2]*value))
+			r := math.Min(1, math.Max(0, cr*gain[0]*intensity))
+			g := math.Min(1, math.Max(0, cg*gain[1]*intensity))
+			b := math.Min(1, math.Max(0, cb*gain[2]*intensity))
 			frame[i] = fmt.Sprintf("#%02X%02X%02X", int(r*255), int(g*255), int(b*255))
 		case haveHue:
 			// A small fan keeps neighbouring bands distinguishable while the
@@ -363,7 +395,11 @@ func (t *spectrumTap) frame(n int, level uint8) []string {
 			// a white one stays white, and neither shows unrelated colours.
 			g := value * luma * luma
 			if luma < .12 {
-				g = 0 // Black is absence of light, not a tinted grey floor.
+				if blackFloor > 0 {
+					g = math.Min(1, blackFloor+value*0.12)
+				} else {
+					g = 0 // Black is absence of light, not a tinted grey floor.
+				}
 			}
 			if g > 1 {
 				g = 1

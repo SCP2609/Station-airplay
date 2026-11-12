@@ -37,7 +37,7 @@ func openTestStation2LED(t *testing.T, depth string, bpp int) (*framebufferLED, 
 	return fb, path
 }
 
-func TestStation2ColorsEncodeRGBX(t *testing.T) {
+func TestStation2ColorsEncodeRGBW(t *testing.T) {
 	fb, path := openTestStation2LED(t, "32", 4)
 	colors := make([]string, station2LEDs)
 	for i := range colors {
@@ -50,9 +50,10 @@ func TestStation2ColorsEncodeRGBX(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []byte{0x33, 0x22, 0x11, 0xff}
+	// R, G, B, W: the white die stays off for a coloured frame.
+	want := []byte{0x11, 0x22, 0x33, 0x00}
 	if !bytes.Equal(got[:4], want) || !bytes.Equal(got[len(got)-4:], want) {
-		t.Fatalf("RGBX pixel: got % x want % x", got[:4], want)
+		t.Fatalf("RGBW pixel: got % x want % x", got[:4], want)
 	}
 }
 
@@ -78,7 +79,7 @@ func TestStation2CalmFillIsSteadyAndDim(t *testing.T) {
 	}
 	got, _ := os.ReadFile(path)
 	// led_level 200 * 30% = 60; the sysfs stations' #00GGGG/2 family.
-	if !bytes.Equal(got[:4], []byte{30, 60, 0, 0xff}) {
+	if !bytes.Equal(got[:4], []byte{0x00, 60, 30, 0x00}) {
 		t.Fatalf("calm pixel: % x", got[:4])
 	}
 	// The same frame must not be rewritten every tick.
@@ -241,7 +242,7 @@ func TestStation2PreviewHoldsTheRingUntilCleared(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []byte{0x00, 0x00, 0xff, 0xff}; !bytes.Equal(got[:4], want) {
+	if want := []byte{0xff, 0x00, 0x00, 0x00}; !bytes.Equal(got[:4], want) {
 		t.Fatalf("preview pixel: got % x want % x", got[:4], want)
 	}
 	if !fb.PreviewActive() {

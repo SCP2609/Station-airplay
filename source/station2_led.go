@@ -317,9 +317,11 @@ func (f *framebufferLED) encodeRGB(frame []byte) ([]byte, error) {
 	for i := 0; i < len(frame); i += 3 {
 		r, g, b := frame[i], frame[i+1], frame[i+2]
 		if f.bytesPerPixel == 4 {
-			// Retail Station 2 FBIOGET_VSCREENINFO: R=16, G=8, B=0, A=24.
-			// Little-endian packed pixels therefore contain B, G, R, X.
-			pixels = append(pixels, b, g, r, 0xff)
+			// The LED panel is 84 RGBW dies plus the logo row: the FPGA takes
+			// the four pixel bytes as R, G, B, W, not as little-endian XRGB.
+			// Writing 0xff into the fourth byte lit the white die at full
+			// power and washed every colour out; the stock animator keeps it 0.
+			pixels = append(pixels, r, g, b, 0x00)
 		} else {
 			pixels = append(pixels, r, g, b)
 		}

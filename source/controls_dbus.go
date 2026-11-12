@@ -450,11 +450,15 @@ func waitNativeVolume(ctx context.Context, v volumeControl) error {
 // all other models keep Luna's logical RGB profile untouched.
 func configureSpectrum(d yamDevice, cfg controlsConfig, tap *spectrumTap) error {
 	gain, profile, neutralBlack, swap := spectrumDefaults(d, cfg)
+	floor, ceiling, saturation := spectrumComfort(d)
 	tap.mu.Lock()
 	tap.brightness = cfg.SpectrumBrightness
 	tap.gain = gain
 	tap.neutralBlack = neutralBlack
 	tap.swapRB = swap
+	tap.blackFloor = floor
+	tap.ceiling = ceiling
+	tap.satBoost = saturation
 	tap.mu.Unlock()
 	if profile != "" {
 		if d.Model != "yandexmini_2" {
@@ -475,6 +479,20 @@ func configureSpectrum(d yamDevice, cfg controlsConfig, tap *spectrumTap) error 
 	fmt.Fprintf(os.Stderr, "airplay spectrum: brightness %.2f (0=default), white balance %.2f/%.2f/%.2f, neutral black %t\n",
 		cfg.SpectrumBrightness, gain[0], gain[1], gain[2], neutralBlack)
 	return nil
+}
+
+// spectrumComfort adapts the animation to the panel size. The Station 2 ring
+// is 84 large RGBW dies with a diffuser, so full-scale white both blinds and
+// clips; a black cover also must not leave AirPlay's ring completely dark.
+func spectrumComfort(d yamDevice) (floor, ceiling, saturation float64) {
+	ceiling, saturation = 1, 1
+	if d.Model == "yandexstation_2" {
+		// A black cover keeps a faint violet glow; muted covers get more
+		// saturation because the panel's diffuser washes yellow into white.
+		floor = 0.07
+		saturation = 1.35
+	}
+	return floor, ceiling, saturation
 }
 
 // spectrumDefaults keeps the per-model choices in one place. A 2.1.3 config
