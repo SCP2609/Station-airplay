@@ -36,6 +36,36 @@ func parseTestHex(t *testing.T, value string) (float64, float64, float64) {
 	return float64(rgb[0]), float64(rgb[1]), float64(rgb[2])
 }
 
+// A model without the PCM analyser still follows the artwork: every zone gets
+// the cover colour instead of the fixed teal placeholder.
+func TestSolidFrameUsesArtworkColour(t *testing.T) {
+	tap := newSpectrumTap(t.TempDir())
+	tap.gain = [3]float64{1, 1, 1}
+	if got := tap.solidFrame(6, 200); got != nil {
+		t.Fatalf("solid frame without artwork = %v", got)
+	}
+	tap.mu.Lock()
+	tap.coverColor = [3]float64{1, 0, 0}
+	tap.haveCoverColor = true
+	tap.mu.Unlock()
+	frame := tap.solidFrame(6, 200)
+	if len(frame) != 6 {
+		t.Fatalf("frame length %d, want 6 zones", len(frame))
+	}
+	for _, zone := range frame {
+		if zone != "#FF0000" {
+			t.Fatalf("zone colour %q, want the cover colour on every zone", zone)
+		}
+	}
+	// A black cover stays the stock dark fallback, never the teal placeholder.
+	tap.mu.Lock()
+	tap.coverColor = [3]float64{}
+	tap.mu.Unlock()
+	if got := tap.solidFrame(6, 200); got[0] != "#182030" {
+		t.Fatalf("black cover painted %q", got[0])
+	}
+}
+
 func TestSpectrumFrameFollowsBandsAndCoverHue(t *testing.T) {
 	tap := newSpectrumTap(t.TempDir())
 	tap.mu.Lock()

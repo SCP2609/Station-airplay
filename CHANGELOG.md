@@ -11,6 +11,16 @@
 - The Mini package seeds `voice`, `native_volume`, `ducking`, `leds` and
   `native_player`; `spectrum` stays off on the logo and `alice_button` stays
   off because Luna reports no Alice-button transport on this profile.
+- Paint the solid indication with the album-artwork colour instead of the
+  fixed teal frame. Artwork is requested whenever `leds` is on: `spectrum`
+  now only chooses between the PCM animation and a solid frame, and a
+  solid-only model skips the ALSA tee entirely.
+- Poll the control loop every 250 ms instead of 500 ms, so a sender volume
+  change reaches the station one tick earlier.
+- Drop the ALSA backend buffer from the stock 0.2 s to 0.1 s
+  (`general.audio_backend_buffer_desired_length_in_seconds`). AirPlay's own
+  buffering still dominates, but start-up and resume no longer carry the
+  extra 100 ms of receiver buffering.
 - Capability gating is unchanged: a host that does not advertise speech, LED
   or the native player still degrades per feature with a logged reason instead
   of losing audio. See `docs/validation/MINI_20261112.md`.

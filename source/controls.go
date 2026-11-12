@@ -681,6 +681,13 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 			for i := range colors {
 				colors[i] = fmt.Sprintf("#00%02x%02x", level, level/2)
 			}
+			// Solid indication follows the cover too; the teal frame above is
+			// only the fallback while the artwork is unknown.
+			if c.spectrum != nil {
+				if art := c.spectrum.solidFrame(c.ledCount, level); art != nil {
+					colors = art
+				}
+			}
 			c.ledMu.Lock()
 			err = c.station.Colors(ctx, colors)
 			c.ledMu.Unlock()

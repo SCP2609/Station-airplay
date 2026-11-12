@@ -85,6 +85,20 @@ func TestSharedProfilesKeepProvenAudioContract(t *testing.T) {
 	}
 }
 
+// AirPlay's own buffering already dominates start-up delay; the receiver must
+// not add the stock 0.2 s backend buffer on top of the shared mixer.
+func TestSharedReceiverKeepsShortBackendBuffer(t *testing.T) {
+	for _, model := range []string{"yandexmini", "yandexmini_2", "yandexstation_2", "yandexmidi"} {
+		p, ok := profileFor(model)
+		if !ok {
+			t.Fatal(model)
+		}
+		if conf := receiverConfig(p); !strings.Contains(conf, "audio_backend_buffer_desired_length_in_seconds = 0.10;") {
+			t.Fatalf("%s lacks the short backend buffer:\n%s", model, conf)
+		}
+	}
+}
+
 func TestLight2SharesMixerAndHoldsDisplay(t *testing.T) {
 	for _, model := range []string{"yandexplum", "plum"} {
 		p, ok := profileFor(model)

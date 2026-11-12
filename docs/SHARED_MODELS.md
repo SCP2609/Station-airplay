@@ -27,7 +27,7 @@ ABI — формат исполняемых программ и библиоте
 | `plum`, `yandexplum` с `--shared-audio` | ARMhf | `speakers` | Общий микшер и shared-визуализатор при наличии часов, трёх RGB-зон и поддержки Luna |
 | `plum`, `yandexplum` с сегментными часами без флага | ARMhf | `plug:dmix_spk` через `spk_tee` | Тот же звук плюс копия PCM для визуализатора |
 | `yandexmicro` | ARMhf | `plug:dmix_spk` | Общий микшер |
-| `yandexmini`, `YandexStationMini` | ARMhf | `softvol` | Общий микшер; ALSA из `/system/vendor/quasar/libs/libasound.so.2`; сплошная индикация на шести RGB-зонах логотипа |
+| `yandexmini`, `YandexStationMini` | ARMhf | `softvol` | Общий микшер; ALSA из `/system/vendor/quasar/libs/libasound.so.2`; сплошная индикация цветом обложки на шести RGB-зонах логотипа |
 | `yandexstation_3` | ARMhf | `speakers` | Общий микшер; пакетный D-Bus |
 | `mango` | ARMhf | `speakers` | Общий микшер; индикация через sysfs (4 кольца, 3 логотипа) |
 | `bergamot`, `yandexmini3` | ARMhf | `speakers` | Общий микшер и shared-визуализатор при наличии часов, шести RGB-зон и поддержки Luna |

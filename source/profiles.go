@@ -224,6 +224,9 @@ func receiverConfig(p stationProfile) string {
  volume_range_db = 50;
  resync_threshold_in_seconds = 0.050;
  drift_tolerance_in_seconds = 0.002;
+ // Stay well inside AirPlay's own buffering: the stock 0.2 s backend buffer
+ // adds avoidable start-up and resume delay in front of the shared mixer.
+ audio_backend_buffer_desired_length_in_seconds = 0.10;
 };
 sessioncontrol = { allow_session_interruption = "yes"; session_timeout = 60; };
 alsa = {
@@ -278,12 +281,15 @@ func uiAsoundSpectrum(pcm, clockFIFO, spectrumFIFO string) string {
 `, stream)
 }
 
-func receiverControlConfig(p stationProfile, controls *controlsConfig, spectrum ...bool) string {
+func receiverControlConfig(p stationProfile, controls *controlsConfig, artwork ...bool) string {
 	config := receiverConfig(p)
 	if controls == nil {
 		return config
 	}
-	withSpectrum := len(spectrum) > 0 && spectrum[0]
+	withArtwork := len(artwork) > 0 && artwork[0]
+	// Only the PCM analyser needs the tee. A solid artwork frame reads the
+	// receiver's cover cache and leaves the audio path alone.
+	withSpectrum := withArtwork && controls.useSpectrum()
 	if withSpectrum {
 		// The ALSA file plugin copies the same PCM into the analyser FIFO and
 		// passes it through to the station mixer. Audio is not re-routed.
@@ -294,9 +300,9 @@ func receiverControlConfig(p stationProfile, controls *controlsConfig, spectrum 
 	// Keep its unused FIFO private and volatile; never request artwork/cache files.
 	config = strings.Replace(config, `metadata = { enabled = "no"; };`,
 		fmt.Sprintf(`metadata = { enabled = "yes"; include_cover_art = "no"; pipe_name = %q; cover_art_cache_directory = %q; };`, controlMetadataFIFO, coverArtDir), 1)
-	if withSpectrum {
-		// Artwork is requested only for the LED visualiser. Normalise the cache
-		// key first so the non-UI template does not end up with a duplicate.
+	if withArtwork {
+		// Normalise the cache key first so the non-UI template does not end up
+		// with a duplicate.
 		config = strings.Replace(config, `; cover_art_cache_directory = "/run/station-airplay/coverart"`, "", 1)
 		config = strings.Replace(config, `include_cover_art = "no"`,
 			`include_cover_art = "yes"; cover_art_cache_directory = "/run/station-airplay/coverart"`, 1)
@@ -462,11 +468,18 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 	if err = preflight(p); err != nil {
 		return err
 	}
-	var metaFD, audioFD, spectrumFD int
+	var metaFD, audioFD int
+	// -1 means "no analyser FIFO": a solid artwork frame reads only the
+	// receiver's cover cache.
+	spectrumFD := -1
 	var pcm <-chan visualizerPCM
 	var pcmErrors <-chan error
 	var tap *spectrumTap
-	spectrum := controls != nil && controls.useSpectrum() && spectrumSupported(d)
+	// Artwork drives both the PCM spectrum and the solid indication colour, so
+	// the receiver asks for covers whenever the LEDs are on. Only the PCM tee
+	// and the analyser depend on the spectrum option.
+	artwork := controls != nil && controls.LEDs && spectrumSupported(d)
+	spectrum := artwork && controls.useSpectrum()
 	if p.ui {
 		if p.sharedUI {
 			// The selected profile has already checked its capabilities. Do
@@ -514,17 +527,19 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		var stopPCM func()
 		pcm, pcmErrors, stopPCM = startVisualizerPCM(audioFD)
 		defer stopPCM() // Registered before child cleanup: keep draining until they stop.
-	} else if spectrum {
+	} else if artwork {
 		if err = os.MkdirAll(coverArtDir, 0700); err != nil {
 			return err
 		}
-		if err = os.WriteFile(filepath.Join(state, ".asoundrc"), []byte(uiAsoundSpectrum(p.pcm, "", spectrumFIFO)), 0600); err != nil {
-			return err
+		if spectrum {
+			if err = os.WriteFile(filepath.Join(state, ".asoundrc"), []byte(uiAsoundSpectrum(p.pcm, "", spectrumFIFO)), 0600); err != nil {
+				return err
+			}
+			if spectrumFD, err = ensureFIFO(spectrumFIFO); err != nil {
+				return err
+			}
+			defer syscall.Close(spectrumFD)
 		}
-		if spectrumFD, err = ensureFIFO(spectrumFIFO); err != nil {
-			return err
-		}
-		defer syscall.Close(spectrumFD)
 		// The receiver still publishes metadata and artwork here; drain its
 		// FIFO so a full buffer cannot block playback while the display
 		// renderer is not running.
@@ -534,6 +549,13 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		defer syscall.Close(metaFD)
 		go drainFIFO(ctx, metaFD)
 		tap = newSpectrumTap(coverArtDir)
+		if !spectrum {
+			// A solid frame still needs the per-model gains and neutral-black
+			// rule; the spectrum path configures the tap when it starts.
+			if err = configureSpectrum(d, *controls, tap); err != nil {
+				return err
+			}
+		}
 		go tap.run(ctx, spectrumFD)
 	}
 	for _, port := range []int{319, 320, 9000} {

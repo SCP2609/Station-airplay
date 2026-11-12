@@ -96,8 +96,12 @@ func (t *spectrumTap) run(ctx context.Context, audioFD int) {
 		case <-ctx.Done():
 			return
 		case now := <-tick.C:
-			if err := readFD(audioFD, func(buf []byte) { t.feedAudio(buf, now) }); err != nil {
-				fmt.Fprintf(os.Stderr, "airplay spectrum: audio FIFO: %v\n", err)
+			// A solid-indication model has no analyser FIFO: the tap only
+			// follows the cover cache for the artwork colour.
+			if audioFD >= 0 {
+				if err := readFD(audioFD, func(buf []byte) { t.feedAudio(buf, now) }); err != nil {
+					fmt.Fprintf(os.Stderr, "airplay spectrum: audio FIFO: %v\n", err)
+				}
 			}
 			t.rotateAt(now)
 		}
@@ -303,6 +307,44 @@ func (t *spectrumTap) playing(now time.Time) bool {
 // frame renders n colours from the four real bands. With artwork the hue is
 // shared and slightly fanned out; without it the bars pulse neutral from black
 // to white instead of showing an unrelated rainbow.
+// solidFrame paints one artwork colour on every zone. It is the indication for
+// models that show a solid frame instead of the PCM spectrum, so a logo light
+// still follows the cover. It returns nil while no artwork is known, which lets
+// the caller keep its own fallback frame.
+func (t *spectrumTap) solidFrame(n int, level uint8) []string {
+	if n <= 0 {
+		return nil
+	}
+	t.mu.Lock()
+	rgb, haveColor := t.coverColor, t.haveCoverColor
+	gain, neutralBlack := t.gain, t.neutralBlack
+	t.mu.Unlock()
+	if !haveColor {
+		return nil
+	}
+	scale := float64(level) / 200
+	if scale <= 0 {
+		scale = 1
+	}
+	if scale > 1 {
+		scale = 1
+	}
+	// Match the spectrum frame: a black cover stays dark instead of inventing
+	// a tint, except on the model whose stock fallback is deliberately blue.
+	if rgb == [3]float64{} && !neutralBlack {
+		rgb = [3]float64{24.0 / 255, 32.0 / 255, 48.0 / 255}
+	}
+	r := math.Min(1, math.Max(0, rgb[0]*gain[0]*scale))
+	g := math.Min(1, math.Max(0, rgb[1]*gain[1]*scale))
+	b := math.Min(1, math.Max(0, rgb[2]*gain[2]*scale))
+	color := fmt.Sprintf("#%02X%02X%02X", int(r*255), int(g*255), int(b*255))
+	frame := make([]string, n)
+	for i := range frame {
+		frame[i] = color
+	}
+	return frame
+}
+
 func (t *spectrumTap) frame(n int, level uint8) []string {
 	if n <= 0 {
 		return nil

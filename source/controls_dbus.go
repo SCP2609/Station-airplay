@@ -264,7 +264,9 @@ func runControlLoop(ctx context.Context, c *sharedController, api *yamAPI, cfg c
 			lastError = time.Now()
 		}
 	}
-	tick := time.NewTicker(500 * time.Millisecond)
+	// 250 ms halves the delay before a sender volume change reaches the
+	// station; the loop does not wait for the (slower) Luna write itself.
+	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		select {
