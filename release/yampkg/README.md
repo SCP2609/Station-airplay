@@ -19,7 +19,7 @@ launcher, а `scripts/package_yampkg.py` пересобирает пакеты �
 
 | Цель | Управление | Что меняется |
 |---|---|---|
-| `yandexstation_2` | полное | `spectrum: false`: большой экран, обложки не включаются |
+| `yandexstation_2` | полное | `spectrum: true`: захват 89-пиксельного framebuffer-кольца |
 | `yandexmini_2` | полное | `spectrum: true`, `led_color_profile: "red"`, яркость `1.25` |
 | `plum`, `yandexplum` | полное | `spectrum: true`, яркость `1.25`, баланс белого `1.5/0.5/0.71` |
 | `yandexmidi`, `cucumber` | полное | добавлен `--controls-config`; включены `native_player` и `alice_button` |
@@ -35,9 +35,11 @@ launcher, а `scripts/package_yampkg.py` пересобирает пакеты �
 
 Матрица 2.1.5 добавляет в конфиг `spectrum`, `spectrum_brightness`,
 `spectrum_gain_r/g/b` и `led_color_profile`. Обложки включены на всех целях с
-RGB-кольцом, кроме `yandexstation_2` и `orion` (Станция 2 и Станция 3). У
-`yandexmini` и `pickle` управление не передаётся, поэтому обложки начнут
-работать только после квалификации их shared-профиля.
+RGB-кольцом, включая `yandexstation_2`: у неё нет sysfs-кольца, поэтому
+плагин на время сессии забирает 89-пиксельный `/dev/fb0` у `led-animator` и
+возвращает его после отключения. Исключены только `yandexstation_3` и
+`orion`. У `yandexmini` и `pickle` управление не передаётся, поэтому обложки
+начнут работать только после квалификации их shared-профиля.
 
 ## Сборка
 

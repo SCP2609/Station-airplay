@@ -22,7 +22,7 @@ ABI — формат исполняемых программ и библиоте
 
 | Модель из API | ABI приёмника | PCM — имя ALSA-выхода | Путь звука и индикации |
 |---|---|---|---|
-| `yandexstation_2` | ARMhf | `plug:dmix_spk` | Общий микшер; shared-индикация framebuffer при включённом управлении |
+| `yandexstation_2` | ARMhf | `plug:dmix_spk` | Общий микшер; обложки и спектр на 89-пиксельном framebuffer при включённом управлении |
 | `yandexmini_2` | ARMhf | `default` | Общий микшер; shared-индикация при наличии возможностей |
 | `plum`, `yandexplum` с `--shared-audio` | ARMhf | `speakers` | Общий микшер и shared-визуализатор при наличии часов, трёх RGB-зон и поддержки Luna |
 | `plum`, `yandexplum` с сегментными часами без флага | ARMhf | `plug:dmix_spk` через `spk_tee` | Тот же звук плюс копия PCM для визуализатора |
