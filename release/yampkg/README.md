@@ -15,7 +15,7 @@ launcher, а `scripts/package_yampkg.py` пересобирает пакеты �
 - `launch-airplay.sh.in` — общий launcher. Плейсхолдеры подставляет сборщик.
 - `requirements.txt` — PyYAML для чтения и записи `MANIFEST.yaml`.
 
-## Матрица 2.1.4
+## Матрица 2.1.5
 
 | Цель | Управление | Что меняется |
 |---|---|---|
@@ -33,7 +33,7 @@ launcher, а `scripts/package_yampkg.py` пересобирает пакеты �
 `led_level` остаётся 200 у всех целей. Для аудио-профилей JSON всё равно
 создаётся launcher'ом при первом запуске, но не передаётся супервизору.
 
-Матрица 2.1.4 добавляет в конфиг `spectrum`, `spectrum_brightness`,
+Матрица 2.1.5 добавляет в конфиг `spectrum`, `spectrum_brightness`,
 `spectrum_gain_r/g/b` и `led_color_profile`. Обложки включены на всех целях с
 RGB-кольцом, кроме `yandexstation_2` и `orion` (Станция 2 и Станция 3). У
 `yandexmini` и `pickle` управление не передаётся, поэтому обложки начнут
@@ -48,7 +48,7 @@ python3 scripts/package_yampkg.py --check
 python3 scripts/package_yampkg.py \
   --base /path/to/published/2.1.2 \
   --binary /path/to/station-airplay-2.1.2.upx \
-  --version 2.1.4 \
+  --version 2.1.5 \
   --out dist/yampkg
 ```
 

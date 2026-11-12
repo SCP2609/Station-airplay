@@ -26,7 +26,7 @@ body:
     id: versions
     attributes:
       label: Версии Station-airplay и Luna
-      placeholder: "2.1.4, Luna 0.2.26"
+      placeholder: "2.1.5, Luna 0.2.26"
     validations:
       required: true
   - type: textarea

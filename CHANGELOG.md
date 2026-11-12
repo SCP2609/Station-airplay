@@ -1,3 +1,12 @@
+## 2.1.5
+
+- Пакеты `.yampkg` собираются `zstd -19` с окном 1 МиБ: тот же payload,
+  меньше архив.
+- Runtime-бинарники (`shairport-sync-ap2`, `dbus-daemon`, `avahi-daemon`,
+  `dbus-send`, `nqptp`) упаковываются UPX на этапе сборки пакета; приёмник
+  пересобран без `libmount`/`libblkid`/`libselinux`/`libpcre2`.
+- Требуется Luna 0.2.26+.
+
 ## 2.1.4
 
 - Show the dominant album-artwork colour and the real PCM spectrum on every
