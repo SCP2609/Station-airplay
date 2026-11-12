@@ -48,7 +48,7 @@ python3 scripts/package_yampkg.py --check
 python3 scripts/package_yampkg.py \
   --base /path/to/published/2.1.2 \
   --binary /path/to/station-airplay-2.1.2.upx \
-  --version 2.1.5 \
+  --version 2.1.5 --slim-runtime \
   --out dist/yampkg
 ```
 

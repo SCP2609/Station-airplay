@@ -1,10 +1,15 @@
 ## 2.1.5
 
 - Пакеты `.yampkg` собираются `zstd -19` с окном 1 МиБ: тот же payload,
-  меньше архив.
+  архив меньше примерно на 0,65 МБ.
 - Runtime-бинарники (`shairport-sync-ap2`, `dbus-daemon`, `avahi-daemon`,
-  `dbus-send`, `nqptp`) упаковываются UPX на этапе сборки пакета; приёмник
-  пересобран без `libmount`/`libblkid`/`libselinux`/`libpcre2`.
+  `dbus-send`, `nqptp`) упаковываются UPX 5.2.1 только в архиве
+  (`--slim-runtime`); установленный размер Mini 2 снижается с 11,3 до
+  7,3 МБ.
+- Убрана вторая libc: `libc.so.6`, `ld-linux-armhf.so.3`, `libm`, `libdl`,
+  `libpthread`, `librt`, `libresolv` и `libgcc_s` больше не поставляются.
+  D-Bus и libplist пересобраны под символы glibc ≤2.28; супервизор передаёт
+  пакетным процессам `LD_LIBRARY_PATH`.
 - Требуется Luna 0.2.26+.
 
 ## 2.1.4
