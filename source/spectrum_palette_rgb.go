@@ -6,6 +6,11 @@ import (
 	"io"
 	"math"
 	"sort"
+
+	// Apple sends album art as TIFF in some AirPlay streams, and shairport
+	// caches it with a .tif name. Without this decoder those covers never
+	// produced a colour and the solid indication fell back to its placeholder.
+	_ "golang.org/x/image/tiff"
 )
 
 // coverRGB keeps saturation and brightness instead of expanding every tint

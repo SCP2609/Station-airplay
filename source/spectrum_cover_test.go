@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"golang.org/x/image/tiff"
 )
 
 func writeCover(t *testing.T, dir, name string, c color.RGBA) string {
@@ -42,6 +44,46 @@ func parseHex(t *testing.T, s string) (int, int, int) {
 		t.Fatalf("colour %q: %v", s, err)
 	}
 	return int(v>>16) & 0xff, int(v>>8) & 0xff, int(v) & 0xff
+}
+
+// Apple sends artwork as TIFF in some streams; a cached .tif cover must still
+// produce a palette instead of leaving the placeholder colour on the LEDs.
+func TestCoverPaletteReadsTIFF(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 32, 32))
+	for y := 0; y < 32; y++ {
+		for x := 0; x < 32; x++ {
+			if x < 16 {
+				img.Set(x, y, color.RGBA{230, 120, 10, 255})
+			} else {
+				img.Set(x, y, color.RGBA{15, 40, 200, 255})
+			}
+		}
+	}
+	path := filepath.Join(t.TempDir(), "cover.tif")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tiff.Encode(f, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	cover, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cover.Close()
+	info, err := cover.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dominant, palette, ok := coverPaletteRGB(cover, info.Size(), 6)
+	if !ok || len(palette) != 2 {
+		t.Fatalf("TIFF palette = %v, ok = %t", palette, ok)
+	}
+	if dominant == [3]float64{} {
+		t.Fatal("TIFF dominant colour is black")
+	}
 }
 
 // Photo artwork is mostly a light background with a coloured subject. The

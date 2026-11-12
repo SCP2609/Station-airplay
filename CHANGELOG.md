@@ -30,6 +30,9 @@
   audible start from about 2 s to about 0.4 s. The setting lives in the shared
   receiver config, so every model gets it. Multi-room sync with other AirPlay
   receivers is traded away by that offset; lower it if the link underruns.
+- Decode TIFF artwork (via `golang.org/x/image/tiff`). Apple sends album art
+  as TIFF in some streams and shairport caches it as `cover-*.tif`; those
+  covers never produced a colour before, so the LEDs kept the placeholder.
 - Prefer the artwork's chromatic clusters over its light background, so photo
   covers stop painting the whole indication white or grey.
 - Write the station volume straight to the ALSA `Master` control when the
