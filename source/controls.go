@@ -697,7 +697,9 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 			}
 			aliceButtonDebug("led: ring state=%s level=%d", state, level)
 			c.ledOwned = true
-			c.ledRefreshAt = now.Add(3 * time.Second)
+			// A solid frame is cheap; repaint often so a new cover and its
+			// palette appear without a multi-second lag.
+			c.ledRefreshAt = now.Add(500 * time.Millisecond)
 		}
 	}
 	return errors.Join(nativeErr, volumeErr)
@@ -734,7 +736,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 		return err
 	}
 	if c.nativeObserved && native != c.observedNative {
-		c.ledQuietUntil = now.Add(3 * time.Second)
+		c.ledQuietUntil = now.Add(time.Second)
 	}
 	c.nativeObserved = true
 	c.observedNative = native
@@ -822,7 +824,7 @@ func (c *sharedController) applySenderVolume(ctx context.Context, s receiverStat
 	c.lastNative = native
 	c.lastDB = s.DB
 	c.pendingNative = -1
-	c.ledQuietUntil = now.Add(3 * time.Second)
+	c.ledQuietUntil = now.Add(time.Second)
 	return nil
 }
 

@@ -44,6 +44,63 @@ func parseHex(t *testing.T, s string) (int, int, int) {
 	return int(v>>16) & 0xff, int(v>>8) & 0xff, int(v) & 0xff
 }
 
+// Two colour clusters in the artwork must reach two groups of zones: the
+// indication reflects the cover, not a single averaged tint.
+func TestSolidFrameSpreadsCoverPalette(t *testing.T) {
+	dir := t.TempDir()
+	img := image.NewRGBA(image.Rect(0, 0, 32, 32))
+	for y := 0; y < 32; y++ {
+		for x := 0; x < 32; x++ {
+			if x < 16 {
+				img.Set(x, y, color.RGBA{200, 20, 20, 255})
+			} else {
+				img.Set(x, y, color.RGBA{20, 20, 200, 255})
+			}
+		}
+	}
+	path := filepath.Join(dir, "cover-palette.png")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	cover, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cover.Close()
+	info, err := cover.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dominant, palette, ok := coverPaletteRGB(cover, info.Size(), 6)
+	if !ok || len(palette) != 2 {
+		t.Fatalf("palette = %v, ok = %t, want two clusters", palette, ok)
+	}
+	tap := newSpectrumTap(dir)
+	tap.gain = [3]float64{1, 1, 1}
+	tap.mu.Lock()
+	tap.palette = palette
+	tap.coverColor, tap.haveCoverColor = dominant, true
+	tap.mu.Unlock()
+	frame := tap.solidFrame(6, 200)
+	if len(frame) != 6 {
+		t.Fatalf("frame length %d", len(frame))
+	}
+	if frame[0] != frame[2] || frame[3] != frame[5] || frame[0] == frame[3] {
+		t.Fatalf("palette not spread over the zones: %v", frame)
+	}
+	for _, s := range frame {
+		r, g, b := parseHex(t, s)
+		if r < 100 && g < 100 && b < 100 {
+			t.Fatalf("palette colour %s is too dim to see", s)
+		}
+	}
+}
+
 func TestAdoptCoverClearsHueOnBlackArtwork(t *testing.T) {
 	dir := t.TempDir()
 	path := writeCover(t, dir, "cover-black.png", color.RGBA{0, 0, 0, 255})

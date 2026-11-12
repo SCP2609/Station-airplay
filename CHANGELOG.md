@@ -17,10 +17,17 @@
   solid-only model skips the ALSA tee entirely.
 - Poll the control loop every 250 ms instead of 500 ms, so a sender volume
   change reaches the station one tick earlier.
+- Spread up to six artwork clusters over the LED zones instead of repeating
+  one tint, and lift a dark artwork to a visibility floor so the hue still
+  reads. The solid frame repaints every 500 ms and a new cover is adopted
+  after 200 ms, down from 3 s and 500 ms.
 - Drop the ALSA backend buffer from the stock 0.2 s to 0.1 s
   (`general.audio_backend_buffer_desired_length_in_seconds`). AirPlay's own
   buffering still dominates, but start-up and resume no longer carry the
   extra 100 ms of receiver buffering.
+- Output 50 ms ahead of the negotiated latency
+  (`general.audio_backend_latency_offset_in_seconds = -0.05`), which shortens
+  the audible start without touching A/V sync.
 - Capability gating is unchanged: a host that does not advertise speech, LED
   or the native player still degrades per feature with a logged reason instead
   of losing audio. See `docs/validation/MINI_20261112.md`.

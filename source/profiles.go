@@ -227,6 +227,9 @@ func receiverConfig(p stationProfile) string {
  // Stay well inside AirPlay's own buffering: the stock 0.2 s backend buffer
  // adds avoidable start-up and resume delay in front of the shared mixer.
  audio_backend_buffer_desired_length_in_seconds = 0.10;
+ // Output a little before the negotiated latency so a start or resume is
+ // heard sooner; the sender's own buffering still decides the floor.
+ audio_backend_latency_offset_in_seconds = -0.05;
 };
 sessioncontrol = { allow_session_interruption = "yes"; session_timeout = 60; };
 alsa = {
