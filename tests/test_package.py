@@ -1,13 +1,13 @@
 """One package, shared daemons, one current engine per native audio ABI."""
 import pathlib, subprocess, sys, tarfile, tomllib
 root = pathlib.Path(__file__).resolve().parent.parent
-subprocess.run([sys.executable, str(root/'scripts/package.py')], check=True)
+subprocess.run([sys.executable, str(root/'scripts/package.py'), '--slim-runtime'], check=True)
 version = tomllib.loads((root/'plugin.toml').read_text())['version']
 with tarfile.open(root/'dist'/f'station-airplay-{version}.yap') as archive:
     members = {m.name: m for m in archive.getmembers()}
     # Control-enabled ARMhf receiver adds static GLib/DACP and its ELF closure.
     # This is an explicit proposed budget increase, not the old <10MiB result.
-    assert sum(m.size for m in members.values()) < 14*1024*1024
+    assert sum(m.size for m in members.values()) < 11*1024*1024
     manifest = tomllib.loads(archive.extractfile('plugin.toml').read().decode())
     assert manifest['id'] == 'station-airplay'
     assert set(manifest['compatibility']['models']) == {'plum', 'yandexplum', 'yandexmidi', 'yandexmini_2', 'yandexstation_2', 'yandexmini_3_pro', 'yandexmini3', 'bergamot', 'yandexmicro', 'yandexmini', 'YandexStationMini', 'mango'}

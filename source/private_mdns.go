@@ -61,9 +61,8 @@ func startPrivateMDNS(ctx context.Context, root, state string, p stationProfile,
 	if err != nil {
 		return err
 	}
-	ld32, libs := filepath.Join(root, "lib/ld-linux-armhf.so.3"), filepath.Join(root, "lib")
-	if err = launch("avahi-namespace", ld32, "--library-path", libs, filepath.Join(root, "bin/avahi-namespace"), state,
-		ld32, "--library-path", libs, filepath.Join(root, "bin/avahi-daemon"),
+	if err = launch("avahi-namespace", filepath.Join(root, "bin/avahi-namespace"), state,
+		filepath.Join(root, "bin/avahi-daemon"),
 		"-f", avahiConf, "--no-drop-root", "--no-chroot", "--no-rlimits", "--no-proc-title"); err != nil {
 		return err
 	}

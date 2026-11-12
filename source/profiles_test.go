@@ -155,7 +155,7 @@ func TestMiniUsesFirmwareALSAAndPackagedDBus(t *testing.T) {
 		t.Fatalf("Mini firmware ALSA %q", got)
 	}
 	bin, args := dbusCommand("/pkg", mini, "dbus-daemon")
-	if bin != "/pkg/lib/ld-linux-armhf.so.3" || strings.Join(args, " ") != "--library-path /pkg/lib /pkg/bin/dbus-daemon" {
+	if bin != "/pkg/bin/dbus-daemon" || len(args) != 0 {
 		t.Fatalf("Mini D-Bus %s %v", bin, args)
 	}
 	station2, _ := profileFor("yandexstation_2")
@@ -406,5 +406,29 @@ func TestMini3ClockRequiresCompleteCapabilities(t *testing.T) {
 	p, _ := profileForDevice(yamDevice{Model: "yandexmini_3_pro", Features: features}, true)
 	if p.ui || p.sharedUI {
 		t.Fatal("Mini3 Pro enabled accidentally")
+	}
+}
+
+func TestRuntimeEnvUsesFirmwareLoader(t *testing.T) {
+	env := runtimeEnv(
+		[]string{"PATH=/bin", "LD_LIBRARY_PATH=/old", "LD_PRELOAD=/old.so", "HOME=/"},
+		"/pkg/lib", "/usr/lib/libasound.so.2",
+	)
+	got := map[string]string{}
+	for _, s := range env {
+		key, value, _ := strings.Cut(s, "=")
+		got[key] = value
+	}
+	if got["PATH"] != "/bin" || got["HOME"] != "/" || len(env) != 4 {
+		t.Fatalf("unexpected child env %v", env)
+	}
+	if got["LD_LIBRARY_PATH"] != "/pkg/lib" {
+		t.Fatalf("library path %q", got["LD_LIBRARY_PATH"])
+	}
+	if got["LD_PRELOAD"] != "/usr/lib/libasound.so.2" {
+		t.Fatalf("preload %q", got["LD_PRELOAD"])
+	}
+	if env := runtimeEnv([]string{"A=1"}, "/pkg/lib", ""); len(env) != 2 || env[1] != "LD_LIBRARY_PATH=/pkg/lib" {
+		t.Fatalf("no-preload env %v", env)
 	}
 }

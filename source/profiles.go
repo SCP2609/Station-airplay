@@ -410,13 +410,13 @@ func stockHost(p stationProfile) (string, error) {
 	return stockHostname(p.mdnsHostPrefix, string(b))
 }
 
-// dbusCommand returns the loader and leading arguments for a D-Bus tool:
-// firmware /usr/bin, or the packaged ARMhf build behind the packaged loader.
+// dbusCommand returns the D-Bus tool: firmware /usr/bin or the packaged ARMhf
+// build. Packaged children receive LD_LIBRARY_PATH from runtimeEnv.
 func dbusCommand(root string, p stationProfile, tool string) (string, []string) {
 	if !p.packagedDBus {
 		return "/usr/bin/" + tool, nil
 	}
-	return filepath.Join(root, "lib/ld-linux-armhf.so.3"), []string{"--library-path", filepath.Join(root, "lib"), filepath.Join(root, "bin", tool)}
+	return filepath.Join(root, "bin", tool), nil
 }
 
 func firmwareALSA(p stationProfile) string {
@@ -580,6 +580,8 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		return err
 	}
 	env := audioEnv(os.Environ(), state, bus)
+	libs := filepath.Join(root, "lib")
+	libEnv := runtimeEnv(env, libs, "")
 	children := []*child{}
 	controlDone := make(chan struct{})
 	controlErrors := make(chan error, 1)
@@ -593,12 +595,12 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		stopChildren(children)
 	}()
 	exits := make(chan exitInfo, 4)
-	launch := func(name, bin string, args ...string) error {
+	launchWith := func(name, bin string, childEnv []string, args ...string) error {
 		file, e := os.OpenFile(filepath.Join(state, name+".log"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 		if e != nil {
 			return e
 		}
-		c, e := startChild(ctx, bin, args, env, &boundedLog{f: file})
+		c, e := startChild(ctx, bin, args, childEnv, &boundedLog{f: file})
 		if e != nil {
 			file.Close()
 			return e
@@ -613,29 +615,28 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		}()
 		return nil
 	}
-	if err = startPrivateMDNS(ctx, root, state, p, env, launch, exits); err != nil {
+	launch := func(name, bin string, args ...string) error {
+		return launchWith(name, bin, libEnv, args...)
+	}
+	if err = startPrivateMDNS(ctx, root, state, p, libEnv, launch, exits); err != nil {
 		return err
 	}
 	ready := func(stage string, check func(context.Context) error) error {
 		return waitSharedStartup(ctx, stage, sharedStartupTimeout, sharedStartupInterval, exits, check)
 	}
-	ld32 := filepath.Join(root, "lib/ld-linux-armhf.so.3")
-	libs := filepath.Join(root, "lib")
 	launchAP2 := func(name string, args ...string) error {
-		loader, paths, binary := ld32, libs, name
-		var preload []string
+		binary, childEnv := name, libEnv
 		if name == "shairport-sync" {
 			binary = "shairport-sync-ap2"
 			if p.receiverABI == "aarch64" {
-				loader, paths, binary = "/lib/ld-linux-aarch64.so.1", filepath.Join(libs, "aarch64")+":/usr/lib:/lib", binary+"-aarch64"
+				binary += "-aarch64"
+				childEnv = runtimeEnv(env, filepath.Join(libs, "aarch64")+":/usr/lib:/lib", "")
 			} else {
 				// Shared dmix must use the firmware ALSA ABI, not the legacy Light library.
-				preload = []string{"--preload", firmwareALSA(p)}
+				childEnv = runtimeEnv(env, libs, firmwareALSA(p))
 			}
 		}
-		argv := append([]string{"--library-path", paths}, preload...)
-		argv = append(argv, filepath.Join(root, "bin", binary))
-		return launch(name, loader, append(argv, args...)...)
+		return launchWith(name, filepath.Join(root, "bin", binary), childEnv, args...)
 	}
 	if err = launchAP2("nqptp", "-v"); err != nil {
 		return err

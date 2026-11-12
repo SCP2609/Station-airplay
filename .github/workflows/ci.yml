@@ -58,11 +58,12 @@ jobs:
           curl -fsSL https://github.com/upx/upx/releases/download/v5.2.1/upx-5.2.1-amd64_linux.tar.xz -o /tmp/upx.tar.xz
           echo '402162aad30af47e60dbd767fb2e64ca394ace9727ba1f40283641f1d1b91657  /tmp/upx.tar.xz' | sha256sum -c -
           tar -xJf /tmp/upx.tar.xz -C /tmp
+          echo "/tmp/upx-5.2.1-amd64_linux" >> "$GITHUB_PATH"
           /tmp/upx-5.2.1-amd64_linux/upx --best --lzma bin/station-airplay
           /tmp/upx-5.2.1-amd64_linux/upx -t bin/station-airplay
       - name: Build and verify the single package
         run: |
-          python3 scripts/package.py
+          python3 scripts/package.py --slim-runtime
           python3 tests/test_package.py
           (cd dist && sha256sum "station-airplay-${VERSION}.yap" > SHA256SUMS && sha256sum -c SHA256SUMS)
       - uses: actions/upload-artifact@v4

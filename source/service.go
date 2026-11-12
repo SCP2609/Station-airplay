@@ -365,14 +365,26 @@ type exitInfo struct {
 	err  error
 }
 
+// runtimeEnv gives a child the package libraries while the firmware loader and
+// libc stay authoritative. preload replaces the bundled ALSA where the shared
+// mixer needs the firmware ABI.
+func runtimeEnv(env []string, libs, preload string) []string {
+	out := make([]string, 0, len(env)+2)
+	for _, s := range env {
+		if strings.HasPrefix(s, "LD_LIBRARY_PATH=") || strings.HasPrefix(s, "LD_PRELOAD=") {
+			continue
+		}
+		out = append(out, s)
+	}
+	out = append(out, "LD_LIBRARY_PATH="+libs)
+	if preload != "" {
+		out = append(out, "LD_PRELOAD="+preload)
+	}
+	return out
+}
+
 func startChild(ctx context.Context, bin string, args []string, env []string, output ...io.Writer) (*child, error) {
 	program := filepath.Base(bin)
-	// One ARMhf runtime also serves the existing Light/Midi engine and Avahi.
-	if program == "shairport-sync-ap2" || program == "avahi-daemon" || program == "nqptp" {
-		root := filepath.Dir(filepath.Dir(bin))
-		args = append([]string{"--library-path", filepath.Join(root, "lib"), bin}, args...)
-		bin = filepath.Join(root, "lib/ld-linux-armhf.so.3")
-	}
 	cmd := exec.Command(bin, args...)
 	cmd.Env = env
 	cmd.Stdout = os.Stdout
