@@ -144,6 +144,14 @@ type indicationStation interface {
 	Indicate(context.Context, string, uint8) error
 }
 
+// ringReleaser is implemented where owning the ring means more than drawing a
+// colour. Station 2 freezes the vendor LED thread, so it must be released
+// explicitly; a black frame would leave the station dark instead of handing
+// control back to its own indication.
+type ringReleaser interface {
+	Release(context.Context) error
+}
+
 func validDB(v float64) bool {
 	return !math.IsNaN(v) && !math.IsInf(v, 0) && (v == -144 || v >= -30 && v <= 0)
 }
@@ -276,6 +284,7 @@ func (c *sharedController) speech(ctx context.Context, e speechEvent, now time.T
 		c.ledOwned = false
 		c.ledState = ""
 		c.ledSuspended = true
+		c.releaseRing(ctx)
 		return nil
 	}
 	if !c.active {
@@ -284,6 +293,7 @@ func (c *sharedController) speech(ctx context.Context, e speechEvent, now time.T
 	c.ledSuspended = true
 	c.ledOwned = false // do NOT send Off over Alice's freshly acquired indication.
 	c.ledState = ""
+	c.releaseRing(ctx)
 	if c.cfg.Ducking {
 		c.duckUntil = now.Add(4 * time.Second)
 		if err := c.receiver.Gain(ctx, 20, 4500); err != nil {
@@ -583,6 +593,7 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 				return err
 			}
 		}
+		c.releaseRing(ctx)
 		if c.ledOwned {
 			c.ledOwned = false
 			c.ledState = ""
@@ -636,15 +647,27 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 	// native volume has settled: its overlay can replace our one-shot frame.
 	// An observed legacy renderer remains the sole UI owner. Keep LEDs in
 	// the config so indication-only setups still subscribe to Alice's state.
-	if c.cfg.LEDs && c.rendererUpdate == nil && c.ledCount > 0 && c.aliceIdle && now.Before(c.speechFreshUntil) && !c.ledSuspended && !now.Before(c.ledQuietUntil) {
+	ind, indication := c.station.(indicationStation)
+	_, leased := c.station.(ringReleaser)
+	// A framebuffer backend owns the vendor LED thread for the whole session.
+	// Do not wait for a fresh idle snapshot: the sender may attach before
+	// Alice emits another idle event. Speech and volume events release the
+	// ring immediately, so this wider gate cannot cover Alice's own UI.
+	fresh := now.Before(c.speechFreshUntil) || leased
+	ledAllowed := c.cfg.LEDs && c.rendererUpdate == nil && c.ledCount > 0 && c.aliceIdle && fresh && !c.ledSuspended && !now.Before(c.ledQuietUntil)
+	if leased && !ledAllowed {
+		c.releaseRing(ctx)
+		c.ledOwned, c.ledState = false, ""
+	}
+	if ledAllowed {
 		state := "playing"
 		if !s.Active || now.Before(c.pausedUntil) {
 			state = "paused"
 		}
 		level := c.cfg.LEDLevel
 		if level == 0 {
-			if _, ok := c.station.(indicationStation); ok {
-				level = 200 // Station 2's previous playback frame was 0xcb
+			if indication {
+				level = 200
 			} else {
 				level = 16 // retain the original opt-in default
 			}
@@ -658,14 +681,15 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 			c.ledRefreshAt = now.Add(100 * time.Millisecond)
 			return errors.Join(nativeErr, volumeErr)
 		}
-		if ind, ok := c.station.(indicationStation); ok {
-			// Framebuffer rings paint a whole frame. Repaint on a state change
-			// and slowly afterwards in case Alice redrew her own indication.
+		if indication {
+			// Framebuffer rings paint a whole frame. The spectrum tap owns the
+			// playing path; this steady fill covers connect, pause and the gap
+			// before the first audio frame.
 			if !c.ledOwned || c.ledState != state || !now.Before(c.ledRefreshAt) {
 				if err = ind.Indicate(ctx, state, level); err != nil {
 					if errors.Is(err, errFramebufferBusy) {
-						// Firmware/Jarvis owns the frame. Do not fight it with a
-						// refresh or send Off over its newly painted animation.
+						// The vendor LED thread could not be leased. Do not
+						// fight it with a write or paint over its animation.
 						c.ledOwned, c.ledState = false, ""
 						return errors.Join(nativeErr, volumeErr)
 					}
@@ -829,7 +853,18 @@ func (c *sharedController) close(ctx context.Context) {
 		c.ledOwned = false
 		c.ledState = ""
 	}
+	c.releaseRing(ctx)
 	c.releaseNative()
+}
+
+// releaseRing hands a leased framebuffer ring back to the station. It is a
+// no-op for sysfs stations, whose Off already means "stop painting".
+func (c *sharedController) releaseRing(ctx context.Context) {
+	if r, ok := c.station.(ringReleaser); ok {
+		if err := r.Release(ctx); err != nil {
+			aliceButtonDebug("led: ring release failed: %v", err)
+		}
+	}
 }
 
 func supportedLEDCount(d yamDevice) int {
@@ -858,8 +893,13 @@ func supportedLEDCount(d yamDevice) int {
 // an RGB ring stays on its existing indication.
 func spectrumSupported(d yamDevice) bool {
 	switch d.Model {
-	case "yandexstation_2", "yandexstation_3", "orion":
+	case "yandexstation_3", "orion":
 		return false
+	case "yandexstation_2":
+		// Station 2 has a real 89-pixel framebuffer ring with a dedicated
+		// takeover backend. Do not require the generic capability list here;
+		// older YAM builds omitted it while the ring was always present.
+		return true
 	}
 	return supportedLEDCount(d) > 0
 }

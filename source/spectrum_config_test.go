@@ -43,12 +43,12 @@ func TestSpectrumConfigBounds(t *testing.T) {
 
 func TestSpectrumExcludesOnlyBigScreens(t *testing.T) {
 	ring := []string{"led.ring.rgb", "led.ring.6"}
-	for _, model := range []string{"yandexmini_2", "yandexplum", "plum", "yandexmidi", "bergamot", "mango", "yandexmicro"} {
+	for _, model := range []string{"yandexmini_2", "yandexplum", "plum", "yandexmidi", "bergamot", "mango", "yandexmicro", "yandexstation_2"} {
 		if !spectrumSupported(yamDevice{Model: model, Features: ring}) {
 			t.Fatalf("%s should support the spectrum", model)
 		}
 	}
-	for _, model := range []string{"yandexstation_2", "yandexstation_3", "orion"} {
+	for _, model := range []string{"yandexstation_3", "orion"} {
 		if spectrumSupported(yamDevice{Model: model, Features: ring}) {
 			t.Fatalf("%s must stay on native indication", model)
 		}

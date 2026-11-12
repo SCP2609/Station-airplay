@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -43,6 +44,11 @@ func runSpectrumLEDs(ctx context.Context, c *sharedController, tap *spectrumTap,
 			err := c.station.Colors(ctx, colors)
 			c.ledMu.Unlock()
 			if err != nil {
+				if errors.Is(err, errFramebufferBusy) {
+					// The station has not released its LED thread yet. Keep the
+					// animator alive; the next tick retries the lease.
+					continue
+				}
 				c.ledFailed.Store(true)
 				if time.Since(lastErr) > 10*time.Second {
 					fmt.Fprintf(os.Stderr, "airplay spectrum: LED frame: %v\n", err)

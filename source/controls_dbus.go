@@ -149,7 +149,8 @@ func serveControlsUI(ctx context.Context, bus string, api *yamAPI, d yamDevice, 
 		// mismatch leaves indication off rather than writing an unknown frame.
 		if fb, e := openStation2LED(); e == nil {
 			station = framebufferStation{yamControlStation: yamControlStation{api: api, volume: volume}, fb: fb}
-			ledCount = 1
+			ledCount = station2LEDs
+			go watchStation2Preview(ctx, fb, station2PreviewPath)
 			defer func() {
 				stop, done := context.WithTimeout(context.Background(), time.Second)
 				defer done()

@@ -100,8 +100,9 @@ assert by_target["bergamot"]["config"] == {**full, **SPECTRUM}
 assert by_target["plum"]["config"] == {**full, **lite_tuning}
 assert by_target["yandexplum"]["config"] == {**full, **lite_tuning}
 assert by_target["yandexmini_2"]["config"] == {**full, **mini2_tuning}
-# Big-screen stations keep their native indication, never artwork covers.
-assert by_target["yandexstation_2"]["config"] == {**full, **SPECTRUM, "spectrum": False}
+# Station 2 now takes over its framebuffer ring for artwork and spectrum.
+# Station 3 (orion) still keeps its native indication.
+assert by_target["yandexstation_2"]["config"] == {**full, **SPECTRUM}
 assert by_target["orion"]["config"]["spectrum"] is False
 assert by_target["cucumber"]["config"]["spectrum"] is True
 assert by_target["mango"]["config"]["spectrum"] is True
