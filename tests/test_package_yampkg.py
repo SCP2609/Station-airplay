@@ -42,7 +42,7 @@ assert set(by_target) == {
     "yandexstation_2",
 }
 
-# The next package enables controls on Midi and restores Mini volume-only.
+# Midi and the original Mini receive the full control set.
 for name in ("yandexmidi", "cucumber", "yandexmini"):
     assert by_target[name]["controls_config"], name
 assert not by_target["orion"]["controls_config"]
@@ -59,15 +59,17 @@ SPECTRUM = {
     "spectrum_gain_b": 1.0,
     "led_color_profile": "",
 }
+# The Mini keeps a solid logo-light indication, so no artwork spectrum, and
+# its Luna host does not advertise an Alice-button transport.
 assert by_target["yandexmini"]["config"] == {
-    "voice": False,
+    "voice": True,
     "native_volume": True,
-    "ducking": False,
-    "leds": False,
+    "ducking": True,
+    "leds": True,
     "led_level": 200,
-    "native_player": False,
+    "native_player": True,
     "alice_button": False,
-    **SPECTRUM,
+    **{**SPECTRUM, "spectrum": False},
 }
 assert by_target["yandexmini"]["models_append"] == ["YandexStationMini"]
 

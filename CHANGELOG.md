@@ -1,3 +1,20 @@
+## 2.1.5
+
+- Enable shared controls on the original Mini (`yandexmini`,
+  `YandexStationMini`): voice transport, two-way volume, speech ducking,
+  indication and the native player, all through the packaged D-Bus bridge.
+  The profile declares `sharedControls`, so `validateControlRenderer` no longer
+  closes it; the old volume-only downgrade is removed.
+- Drive the Mini's six-zone RGB logo (`led.logo.rgb`, `led.logo.6`).
+  `supportedLEDCount` now reads logo zones as well as ring zones, so a station
+  without a ring still gets a solid indication frame instead of no indication.
+- The Mini package seeds `voice`, `native_volume`, `ducking`, `leds` and
+  `native_player`; `spectrum` stays off on the logo and `alice_button` stays
+  off because Luna reports no Alice-button transport on this profile.
+- Capability gating is unchanged: a host that does not advertise speech, LED
+  or the native player still degrades per feature with a logged reason instead
+  of losing audio. See `docs/validation/MINI_20261112.md`.
+
 ## 2.1.4
 
 - Show the dominant album-artwork colour and the real PCM spectrum on every

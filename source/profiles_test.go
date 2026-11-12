@@ -288,7 +288,7 @@ func TestControlsDoNotSilentlyLoseTheirLoopToUpstreamDisplay(t *testing.T) {
 			t.Fatal(model, err)
 		}
 	}
-	for _, model := range []string{"yandexmini_3_pro", "yandexmini", "YandexStationMini"} {
+	for _, model := range []string{"yandexmini_3_pro", "yandexstation_3"} {
 		p, ok := profileFor(model)
 		if !ok {
 			t.Fatal(model)
@@ -299,55 +299,38 @@ func TestControlsDoNotSilentlyLoseTheirLoopToUpstreamDisplay(t *testing.T) {
 	}
 }
 
-func TestOriginalMiniRunsVolumeOnlyWithoutDBus(t *testing.T) {
+// The original Mini on Luna 0.2.26 advertises speech, commands, LED and
+// native player in /media, so its packaged D-Bus bridge carries the same
+// shared controls as the other ARMhf profiles. Station 3 and Mini 3 Pro keep
+// the audio-only gate.
+func TestOriginalMiniSharesControlsOnPackagedDBus(t *testing.T) {
+	full := &controlsConfig{NativeVolume: true, Voice: true, Ducking: true, LEDs: true, NativePlayer: true, AliceButton: true}
 	for _, model := range []string{"yandexmini", "YandexStationMini"} {
 		p, ok := profileFor(model)
 		if !ok {
 			t.Fatal(model)
 		}
-		if !p.volumeOnly || !p.packagedDBus {
-			t.Fatalf("%s is not the volume-only packaged-D-Bus profile", model)
+		if !p.sharedControls || !p.packagedDBus {
+			t.Fatalf("%s lost the packaged-D-Bus control profile: %+v", model, p)
 		}
-		if err := validateControlRenderer(p, &controlsConfig{NativeVolume: true}); err != nil {
-			t.Fatalf("%s volume-only rejected: %v", model, err)
+		if err := validateControlRenderer(p, full); err != nil {
+			t.Fatalf("%s rejected shared controls: %v", model, err)
 		}
-		if err := validateControlRenderer(p, &controlsConfig{NativeVolume: true, Voice: true}); err == nil {
-			t.Fatalf("%s accepted voice without a qualified D-Bus bridge", model)
-		}
-		if err := validateControlRenderer(p, &controlsConfig{}); err == nil {
-			t.Fatalf("%s accepted empty controls", model)
-		}
-		got := limitToVolumeOnly(p, &controlsConfig{
-			NativeVolume: true, Voice: true, Ducking: true, LEDs: true,
-			NativePlayer: true, AliceButton: true,
-		})
-		if !got.NativeVolume || got.Voice || got.Ducking || got.LEDs || got.NativePlayer || got.AliceButton {
-			t.Fatalf("%s did not downgrade to volume only: %+v", model, got)
+		if p.pcm != "softvol" || !p.quasarCoexist || p.receiverABI != "armhf" || firmwareALSA(p) != "/system/vendor/quasar/libs/libasound.so.2" {
+			t.Fatalf("%s audio contract changed: %+v", model, p)
 		}
 	}
-	station3, ok := profileFor("yandexstation_3")
-	if !ok || station3.volumeOnly {
-		t.Fatal("Station 3 must keep its current audio-only profile")
-	}
-}
-
-// A Luna host must not widen an unqualified control profile: the original
-// Mini keeps volume only, and Station 3 keeps its audio-only profile.
-func TestLunaHostDoesNotWidenUnqualifiedProfiles(t *testing.T) {
-	mini, ok := profileFor("yandexmini")
-	if !ok {
-		t.Fatal("Mini profile missing")
-	}
-	full := &controlsConfig{NativeVolume: true, Voice: true, Ducking: true, LEDs: true, NativePlayer: true, AliceButton: true}
-	got := limitToVolumeOnly(mini, full)
-	if !got.NativeVolume || got.Voice || got.Ducking || got.LEDs || got.NativePlayer || got.AliceButton {
-		t.Fatalf("Mini controls widened: %+v", got)
-	}
-	if err := validateControlRenderer(mini, got); err != nil {
-		t.Fatalf("volume-only Mini rejected: %v", err)
-	}
-	if err := validateControlRenderer(mini, full); err == nil {
-		t.Fatal("Mini accepted full packaged-D-Bus controls")
+	for _, model := range []string{"yandexstation_3", "yandexmini_3_pro"} {
+		p, ok := profileFor(model)
+		if !ok {
+			t.Fatal(model)
+		}
+		if p.sharedControls {
+			t.Fatalf("%s must stay an audio profile", model)
+		}
+		if err := validateControlRenderer(p, full); err == nil {
+			t.Fatalf("%s accepted unqualified controls", model)
+		}
 	}
 }
 

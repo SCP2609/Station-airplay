@@ -105,10 +105,9 @@ func runWithControls(ctx context.Context, sharedAudio bool, controls *controlsCo
 	if !ok {
 		return fmt.Errorf("unsupported YAM model %q", d.Model)
 	}
-	controls = limitToVolumeOnly(p, controls)
 	// A model whose control profile is not qualified still has to play audio:
-	// the original Mini, Station 3 and Mini 3 have no validated D-Bus
-	// transport, and refusing to start left them with a dead plugin.
+	// Station 3 and Mini 3 Pro have no qualified shared-control transport, and
+	// refusing to start left them with a dead plugin.
 	if err = validateControlRenderer(p, controls); err != nil {
 		fmt.Fprintf(os.Stderr, "station-airplay: shared controls disabled: %v\n", err)
 		controls = nil
@@ -119,13 +118,13 @@ func runWithControls(ctx context.Context, sharedAudio bool, controls *controlsCo
 	}
 	if controls != nil {
 		if err = controlsPreflight(ctx, api, d, controls); err != nil {
-			if !p.volumeOnly {
+			if !p.sharedControls || !p.packagedDBus {
 				return err
 			}
-			// The Mini must keep playing even when Luna cannot expose its
-			// volume endpoint (an emulator, an older host, a first boot).
-			// Volume is an enhancement here, not a startup condition.
-			fmt.Fprintf(os.Stderr, "station-airplay: Mini volume preflight failed, continuing audio-only: %v\n", err)
+			// The Mini must keep playing even when Luna cannot expose a control
+			// capability (an emulator, an older host, a first boot). The packaged
+			// bridge is an enhancement here, not a startup condition.
+			fmt.Fprintf(os.Stderr, "station-airplay: Mini controls unavailable, continuing audio-only: %v\n", err)
 			controls = nil
 		}
 	}
@@ -133,24 +132,6 @@ func runWithControls(ctx context.Context, sharedAudio bool, controls *controlsCo
 		return errors.New("shared profiles require an AArch64 kernel")
 	}
 	return runSharedControls(ctx, p, api, d, controls)
-}
-
-// limitToVolumeOnly keeps the original Mini's unqualified speech and button
-// bridge off while retaining the one control layer that Luna can own without
-// D-Bus: the sender's volume slider. Other packaged-D-Bus profiles are left
-// untouched, so Station 3 keeps its current audio-only behaviour.
-func limitToVolumeOnly(p stationProfile, controls *controlsConfig) *controlsConfig {
-	if !p.volumeOnly || controls == nil || !controls.NativeVolume {
-		return controls
-	}
-	if !controls.Voice && !controls.Ducking && !controls.LEDs && !controls.NativePlayer && !controls.AliceButton {
-		return controls
-	}
-	c := *controls
-	c.Voice, c.Ducking, c.LEDs = false, false, false
-	c.NativePlayer, c.AliceButton = false, false
-	fmt.Println("shared controls: Mini packaged D-Bus supports volume only; voice, ducking, LEDs, native player and Alice button stay off")
-	return &c
 }
 
 // A renderer must have only one UI owner. Controls keep their explicit
@@ -173,15 +154,7 @@ func validateControlRenderer(p stationProfile, controls *controlsConfig) error {
 	if p.receiverABI == "aarch64" {
 		return errors.New("shared controls require the control-enabled ARMhf receiver; AArch64 control build is not qualified")
 	}
-	if p.packagedDBus {
-		if p.volumeOnly && controls.NativeVolume &&
-			!controls.Voice && !controls.Ducking && !controls.LEDs &&
-			!controls.NativePlayer && !controls.AliceButton {
-			return nil
-		}
-		if p.volumeOnly {
-			return errors.New("shared controls for the original Mini packaged D-Bus profile are volume-only; enable native_volume")
-		}
+	if p.packagedDBus && !p.sharedControls {
 		return errors.New("shared controls for the packaged D-Bus profile are not qualified; audio-only upstream mode remains available")
 	}
 	return nil

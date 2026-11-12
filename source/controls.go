@@ -833,15 +833,23 @@ func (c *sharedController) close(ctx context.Context) {
 }
 
 func supportedLEDCount(d yamDevice) int {
-	// Only documented YAM ring capabilities, never a guessed Station2 framebuffer.
-	if !feature(d, "led.ring.rgb") {
+	// Only documented YAM capabilities, never a guessed Station2 framebuffer.
+	// A station exposes either an RGB ring (led.ring.rgb/led.ring.N) or an RGB
+	// logo light (led.logo.rgb/led.logo.N); both answer the same /led API.
+	prefix := ""
+	switch {
+	case feature(d, "led.ring.rgb"):
+		prefix = "led.ring."
+	case feature(d, "led.logo.rgb"):
+		prefix = "led.logo."
+	default:
 		return 0
 	}
-	// The ring size is advertised per model (3, 4, 6, 12, 24, 36...). Read the
+	// The zone count is advertised per model (3, 4, 6, 12, 24, 36...). Read the
 	// number instead of keeping a list that silently disables new stations.
 	count := 0
 	for _, f := range d.Features {
-		value, ok := strings.CutPrefix(f, "led.ring.")
+		value, ok := strings.CutPrefix(f, prefix)
 		if !ok || value == "rgb" {
 			continue
 		}
