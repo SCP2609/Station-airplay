@@ -32,13 +32,28 @@ CONFIG_KEYS = (
     "led_level",
     "native_player",
     "alice_button",
+    "spectrum",
+    "spectrum_brightness",
+    "spectrum_gain_r",
+    "spectrum_gain_g",
+    "spectrum_gain_b",
+    "led_color_profile",
+)
+BOOL_KEYS = (
+    "voice",
+    "native_volume",
+    "ducking",
+    "leds",
+    "native_player",
+    "alice_button",
+    "spectrum",
 )
 NEW_PERMISSIONS = (
     'permissions = ["exec", "clock", "led", "ipc.speech", "commands", '
     '"media.native", "input.alice"]'
 )
 OLD_PERMISSIONS = 'permissions = ["exec", "clock", "led", "ipc.speech", "commands"]'
-LUNA_DEPENDENCY = "yam/luna >=0.2.25"
+LUNA_DEPENDENCY = "yam/luna >=0.2.26"
 
 
 def sha256_bytes(data):
@@ -107,10 +122,19 @@ def validate_matrix(matrix):
         config = target.get("config")
         if not isinstance(config, dict) or set(config) != set(CONFIG_KEYS):
             raise SystemExit("%s: config must contain exactly %s" % (name, ", ".join(CONFIG_KEYS)))
-        if not all(isinstance(config[key], bool) for key in CONFIG_KEYS if key != "led_level"):
+        if not all(isinstance(config[key], bool) for key in BOOL_KEYS):
             raise SystemExit("%s: config feature flags must be booleans" % name)
         if not isinstance(config["led_level"], int) or not 0 <= config["led_level"] <= 255:
             raise SystemExit("%s: led_level must be 0..255" % name)
+        brightness = config["spectrum_brightness"]
+        if isinstance(brightness, bool) or not isinstance(brightness, (int, float)) or not 0 <= brightness <= 2:
+            raise SystemExit("%s: spectrum_brightness must be 0..2" % name)
+        for key in ("spectrum_gain_r", "spectrum_gain_g", "spectrum_gain_b"):
+            gain = config[key]
+            if isinstance(gain, bool) or not isinstance(gain, (int, float)) or not 0 <= gain <= 4:
+                raise SystemExit("%s: %s must be 0..4" % (name, key))
+        if config["led_color_profile"] not in ("", "red", "blue"):
+            raise SystemExit("%s: led_color_profile must be empty, red or blue" % name)
 
 
 def render_launcher(template, target):

@@ -29,9 +29,11 @@ import (
 )
 
 const (
-	version      = "Station airplay 2.1.3"
+	version      = "Station airplay 2.1.4"
 	audioFIFO    = "/tmp/sps.fifo"
+	spectrumFIFO = "/tmp/sps-spectrum.fifo"
 	metadataFIFO = "/tmp/shairport-sync-ap2-metadata"
+	coverArtDir  = "/run/station-airplay/coverart"
 	brightness   = 170
 )
 

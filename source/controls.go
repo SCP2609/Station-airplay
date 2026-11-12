@@ -12,25 +12,38 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
 type controlsConfig struct {
-	Voice            bool         `json:"voice"`
-	NativeVolume     bool         `json:"native_volume"`
-	VolumeBackend    string       `json:"volume_backend,omitempty"`
-	VolumeDependency string       `json:"volume_dependency,omitempty"`
-	Ducking          bool         `json:"ducking"`
-	LEDs             bool         `json:"leds"`
-	LEDLevel         uint8        `json:"led_level,omitempty"`
-	NativePlayer     bool         `json:"native_player,omitempty"`
-	AliceButton      bool         `json:"alice_button,omitempty"`
-	ClockWaveStyle   string       `json:"clock_wave_style,omitempty"`
-	ClockMode        string       `json:"clock_mode,omitempty"`
-	ClockWaveSeconds int          `json:"clock_wave_seconds,omitempty"`
-	ClockTimeSeconds int          `json:"clock_time_seconds,omitempty"`
-	Group            *groupConfig `json:"group,omitempty"`
+	// Omitted keeps the LED spectrum on; false restores the solid indication
+	// frames without opening a PCM tap or reading cover art.
+	Spectrum           *bool        `json:"spectrum,omitempty"`
+	SpectrumBrightness float64      `json:"spectrum_brightness,omitempty"`
+	SpectrumGainR      float64      `json:"spectrum_gain_r,omitempty"`
+	SpectrumGainG      float64      `json:"spectrum_gain_g,omitempty"`
+	SpectrumGainB      float64      `json:"spectrum_gain_b,omitempty"`
+	LEDColorProfile    string       `json:"led_color_profile,omitempty"`
+	Voice              bool         `json:"voice"`
+	NativeVolume       bool         `json:"native_volume"`
+	VolumeBackend      string       `json:"volume_backend,omitempty"`
+	VolumeDependency   string       `json:"volume_dependency,omitempty"`
+	Ducking            bool         `json:"ducking"`
+	LEDs               bool         `json:"leds"`
+	LEDLevel           uint8        `json:"led_level,omitempty"`
+	NativePlayer       bool         `json:"native_player,omitempty"`
+	AliceButton        bool         `json:"alice_button,omitempty"`
+	ClockWaveStyle     string       `json:"clock_wave_style,omitempty"`
+	ClockMode          string       `json:"clock_mode,omitempty"`
+	ClockWaveSeconds   int          `json:"clock_wave_seconds,omitempty"`
+	ClockTimeSeconds   int          `json:"clock_time_seconds,omitempty"`
+	Group              *groupConfig `json:"group,omitempty"`
+}
+
+func (c *controlsConfig) useSpectrum() bool {
+	return c != nil && c.LEDs && (c.Spectrum == nil || *c.Spectrum)
 }
 
 // volumeBackend values. An empty value means "luna when the runtime API is
@@ -58,6 +71,17 @@ func loadControls(path string) (*controlsConfig, error) {
 	}
 	if err = d.Decode(new(any)); err != io.EOF {
 		return nil, errors.New("trailing control configuration")
+	}
+	if c.SpectrumBrightness < 0 || c.SpectrumBrightness > 2 {
+		return nil, errors.New("spectrum_brightness must be between 0 and 2")
+	}
+	for _, gain := range []float64{c.SpectrumGainR, c.SpectrumGainG, c.SpectrumGainB} {
+		if gain < 0 || gain > 4 {
+			return nil, errors.New("spectrum_gain_r/g/b must be between 0 and 4")
+		}
+	}
+	if c.LEDColorProfile != "" && c.LEDColorProfile != "red" && c.LEDColorProfile != "blue" {
+		return nil, errors.New("led_color_profile must be red or blue")
 	}
 	if c.VolumeBackend != "" && c.VolumeBackend != volumeBackendLuna && c.VolumeBackend != volumeBackendPackage {
 		return nil, errors.New("volume_backend must be luna or package")
@@ -199,6 +223,9 @@ type sharedController struct {
 	ledOwned, ledSuspended      bool
 	ledState                    string
 	ledRefreshAt, ledQuietUntil time.Time
+	spectrum                    *spectrumTap
+	ledMu                       sync.Mutex
+	ledPlay, ledFailed          atomic.Bool
 	observedNative              int
 	nativeObserved              bool
 	aliceIdle                   bool
@@ -489,6 +516,7 @@ func (c *sharedController) stopButtonSuppression() {
 }
 
 func (c *sharedController) tick(ctx context.Context, now time.Time) error {
+	c.ledPlay.Store(false)
 	s, err := c.receiver.State(ctx)
 	if err != nil {
 		c.buttonSession.Store(false)
@@ -621,6 +649,15 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 				level = 16 // retain the original opt-in default
 			}
 		}
+		if state == "playing" && c.spectrum != nil && !c.ledFailed.Load() && c.spectrum.playing(now) {
+			// The dedicated animator paints at 10 Hz. The tick only publishes
+			// the gate and keeps the same ownership bookkeeping.
+			c.ledPlay.Store(true)
+			c.ledOwned = true
+			c.ledState = "playing"
+			c.ledRefreshAt = now.Add(100 * time.Millisecond)
+			return errors.Join(nativeErr, volumeErr)
+		}
 		if ind, ok := c.station.(indicationStation); ok {
 			// Framebuffer rings paint a whole frame. Repaint on a state change
 			// and slowly afterwards in case Alice redrew her own indication.
@@ -644,7 +681,10 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 			for i := range colors {
 				colors[i] = fmt.Sprintf("#00%02x%02x", level, level/2)
 			}
-			if err = c.station.Colors(ctx, colors); err != nil {
+			c.ledMu.Lock()
+			err = c.station.Colors(ctx, colors)
+			c.ledMu.Unlock()
+			if err != nil {
 				aliceButtonDebug("led: colors failed: %v", err)
 				return errors.Join(volumeErr, err)
 			}
@@ -811,4 +851,15 @@ func supportedLEDCount(d yamDevice) int {
 		}
 	}
 	return count
+}
+
+// spectrumSupported keeps artwork and the PCM spectrum off the big-screen
+// stations. Every other model uses the capability check, so a station without
+// an RGB ring stays on its existing indication.
+func spectrumSupported(d yamDevice) bool {
+	switch d.Model {
+	case "yandexstation_2", "yandexstation_3", "orion":
+		return false
+	}
+	return supportedLEDCount(d) > 0
 }

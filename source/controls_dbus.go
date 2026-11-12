@@ -125,6 +125,13 @@ func serveControls(ctx context.Context, bus string, api *yamAPI, d yamDevice, cf
 }
 
 func serveControlsObserved(ctx context.Context, bus string, api *yamAPI, d yamDevice, cfg controlsConfig, observer func(rendererControlState)) error {
+	return serveControlsUI(ctx, bus, api, d, cfg, observer, nil, false)
+}
+
+// serveControlsUI also attaches the optional spectrum tap. animateRing is true
+// when the controls tick owns the RGB ring; clock renderers feed the tap from
+// their own display loop instead.
+func serveControlsUI(ctx context.Context, bus string, api *yamAPI, d yamDevice, cfg controlsConfig, observer func(rendererControlState), spectrum *spectrumTap, animateRing bool) error {
 	r, err := openReceiver(bus)
 	if err != nil {
 		return err
@@ -153,7 +160,13 @@ func serveControlsObserved(ctx context.Context, bus string, api *yamAPI, d yamDe
 			fmt.Fprintf(os.Stderr, "station-airplay: Station 2 indication unavailable: %v\n", e)
 		}
 	}
-	c := &sharedController{cfg: cfg, receiver: r, station: station, ledCount: ledCount, rendererUpdate: observer}
+	c := &sharedController{cfg: cfg, receiver: r, station: station, ledCount: ledCount, rendererUpdate: observer, spectrum: spectrum}
+	if spectrum != nil && animateRing && cfg.useSpectrum() && ledCount > 0 {
+		if err = configureSpectrum(d, cfg, spectrum); err != nil {
+			return err
+		}
+		go runSpectrumLEDs(ctx, c, spectrum, spectrumLEDLevel(cfg))
+	}
 	if d.Model == "plum" || d.Model == "yandexplum" {
 		c.volumeStep = 5
 	}
@@ -429,4 +442,63 @@ func waitNativeVolume(ctx context.Context, v volumeControl) error {
 		case <-time.After(nativeVolumeRetryInterval):
 		}
 	}
+}
+
+// configureSpectrum applies the target's stock LED calibration and tuning.
+// The colour matrix is only accepted for the Mini 2, where it was verified;
+// all other models keep Luna's logical RGB profile untouched.
+func configureSpectrum(d yamDevice, cfg controlsConfig, tap *spectrumTap) error {
+	gain, profile, neutralBlack, swap := spectrumDefaults(d, cfg)
+	tap.mu.Lock()
+	tap.brightness = cfg.SpectrumBrightness
+	tap.gain = gain
+	tap.neutralBlack = neutralBlack
+	tap.swapRB = swap
+	tap.mu.Unlock()
+	if profile != "" {
+		if d.Model != "yandexmini_2" {
+			return errors.New("led_color_profile requires Mini 2")
+		}
+		matrix, e := loadLEDColorMatrix("/system/vendor/quasar/ledconfigs", profile)
+		if e != nil {
+			// Audio and the rest of the indication must survive a missing
+			// vendor profile; only the colour correction is skipped.
+			fmt.Fprintf(os.Stderr, "airplay spectrum: stock LED profile %s unavailable: %v\n", profile, e)
+		} else {
+			tap.mu.Lock()
+			tap.matrix = matrix
+			tap.mu.Unlock()
+			fmt.Fprintf(os.Stderr, "airplay spectrum: stock LED colour profile %s\n", profile)
+		}
+	}
+	fmt.Fprintf(os.Stderr, "airplay spectrum: brightness %.2f (0=default), white balance %.2f/%.2f/%.2f, neutral black %t\n",
+		cfg.SpectrumBrightness, gain[0], gain[1], gain[2], neutralBlack)
+	return nil
+}
+
+// spectrumDefaults keeps the per-model choices in one place. A 2.1.3 config
+// has no spectrum keys: Mini 2 still gets its stock red profile and BGR swap,
+// and Lite 2 keeps the measured white balance until the user retunes it.
+func spectrumDefaults(d yamDevice, cfg controlsConfig) (gain [3]float64, profile string, neutralBlack, swap bool) {
+	gain = [3]float64{1, 1, 1}
+	if cfg.SpectrumGainR > 0 {
+		gain[0] = cfg.SpectrumGainR
+	}
+	if cfg.SpectrumGainG > 0 {
+		gain[1] = cfg.SpectrumGainG
+	}
+	if cfg.SpectrumGainB > 0 {
+		gain[2] = cfg.SpectrumGainB
+	}
+	if cfg.SpectrumGainR == 0 && cfg.SpectrumGainG == 0 && cfg.SpectrumGainB == 0 &&
+		(d.Model == "plum" || d.Model == "yandexplum") {
+		gain = [3]float64{1.5, 0.5, 0.71}
+	}
+	profile = cfg.LEDColorProfile
+	if profile == "" && d.Model == "yandexmini_2" {
+		profile = "red"
+	}
+	neutralBlack = d.Model != "yandexmini_2"
+	swap = d.Model == "yandexmini_2"
+	return gain, profile, neutralBlack, swap
 }

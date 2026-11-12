@@ -1,0 +1,65 @@
+name: Цвет или индикация
+description: Неправильный цвет обложки, порядок каналов, яркость или часы
+title: "[colour] <модель>: <краткое описание>"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за отчёт. Сначала проверьте цвета по
+        [руководству](https://github.com/ryysel/Station-airplay/blob/main/docs/COLOR_CHECK.md)
+        и приложите данные ниже — без модели и прошивки проблему трудно воспроизвести.
+  - type: input
+    id: model
+    attributes:
+      label: Модель и model ID
+      placeholder: "Например: Мини 2, yandexmini_2"
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Прошивка
+      description: "Вывод: cat /system/vendor/quasar/version_full"
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Версии Station-airplay и Luna
+      placeholder: "2.1.4, Luna 0.2.26"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидалось
+      description: Опишите ожидаемый цвет и приложите исходную обложку.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Что видно на колонке
+      description: Фото или видео кольца, особенно для белого, чёрного, серого и основных цветов.
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Настройки спектра
+      description: "Значения spectrum, spectrum_brightness, spectrum_gain_r/g/b, led_color_profile."
+      render: json
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи
+      description: "Строки airplay spectrum: из runtime-лога плагина."
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Проверки
+      options:
+        - label: Проверял(а) на паузе AirPlay, а не во время воспроизведения
+        - label: Проверил(а) белую, чёрную, серую и основные цвета
+        - label: Понимаю, что Станция 2 и Станция 3 намеренно без обложек

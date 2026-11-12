@@ -4,7 +4,9 @@
     {
       "target": "bergamot",
       "controls_config": true,
-      "sleep": [10],
+      "sleep": [
+        10
+      ],
       "dbus_export": true,
       "mango_guard": false,
       "config": {
@@ -14,17 +16,27 @@
         "leds": true,
         "led_level": 200,
         "native_player": true,
-        "alice_button": true
+        "alice_button": true,
+        "spectrum": true,
+        "spectrum_brightness": 1.0,
+        "spectrum_gain_r": 1.0,
+        "spectrum_gain_g": 1.0,
+        "spectrum_gain_b": 1.0,
+        "led_color_profile": ""
       }
     },
     {
       "target": "pickle",
       "base_target": "bergamot",
       "controls_config": false,
-      "sleep": [10],
+      "sleep": [
+        10
+      ],
       "dbus_export": true,
       "mango_guard": false,
-      "models_append": ["yandexmini_3_pro"],
+      "models_append": [
+        "yandexmini_3_pro"
+      ],
       "extra_files": {
         "bin/shairport-sync-ap2-aarch64": "bin/shairport-sync-ap2-aarch64",
         "lib/aarch64/libplist-2.0.so.3": "lib/aarch64/libplist-2.0.so.3"
@@ -36,13 +48,21 @@
         "leds": true,
         "led_level": 200,
         "native_player": false,
-        "alice_button": false
+        "alice_button": false,
+        "spectrum": true,
+        "spectrum_brightness": 1.0,
+        "spectrum_gain_r": 1.0,
+        "spectrum_gain_g": 1.0,
+        "spectrum_gain_b": 1.0,
+        "led_color_profile": ""
       }
     },
     {
       "target": "cucumber",
       "controls_config": true,
-      "sleep": [10],
+      "sleep": [
+        10
+      ],
       "dbus_export": true,
       "mango_guard": false,
       "config": {
@@ -52,13 +72,22 @@
         "leds": true,
         "led_level": 200,
         "native_player": true,
-        "alice_button": true
+        "alice_button": true,
+        "spectrum": true,
+        "spectrum_brightness": 1.0,
+        "spectrum_gain_r": 1.0,
+        "spectrum_gain_g": 1.0,
+        "spectrum_gain_b": 1.0,
+        "led_color_profile": ""
       }
     },
     {
       "target": "mango",
       "controls_config": true,
-      "sleep": [10, 4],
+      "sleep": [
+        10,
+        4
+      ],
       "dbus_export": true,
       "mango_guard": true,
       "config": {
@@ -68,13 +97,22 @@
         "leds": true,
         "led_level": 200,
         "native_player": false,
-        "alice_button": false
+        "alice_button": false,
+        "spectrum": true,
+        "spectrum_brightness": 1.0,
+        "spectrum_gain_r": 1.0,
+        "spectrum_gain_g": 1.0,
+        "spectrum_gain_b": 1.0,
+        "led_color_profile": ""
       }
     },
     {
       "target": "orion",
       "controls_config": false,
-      "sleep": [10, 4],
+      "sleep": [
+        10,
+        4
+      ],
       "dbus_export": true,
       "mango_guard": false,
       "config": {
@@ -84,13 +122,21 @@
         "leds": true,
         "led_level": 200,
         "native_player": false,
-        "alice_button": false
+        "alice_button": false,
+        "spectrum": false,
+        "spectrum_brightness": 1.0,
+        "spectrum_gain_r": 1.0,
+        "spectrum_gain_g": 1.0,
+        "spectrum_gain_b": 1.0,
+        "led_color_profile": ""
       }
     },
     {
       "target": "plum",
       "controls_config": true,
-      "sleep": [4],
+      "sleep": [
+        4
+      ],
       "dbus_export": false,
       "mango_guard": false,
       "config": {
@@ -100,13 +146,21 @@
         "leds": true,
         "led_level": 200,
         "native_player": true,
-        "alice_button": true
+        "alice_button": true,
+        "spectrum": true,
+        "spectrum_brightness": 1.25,
+        "spectrum_gain_r": 1.5,
+        "spectrum_gain_g": 0.5,
+        "spectrum_gain_b": 0.71,
+        "led_color_profile": ""
       }
     },
     {
       "target": "yandexmicro",
       "controls_config": true,
-      "sleep": [4],
+      "sleep": [
+        4
+      ],
       "dbus_export": false,
       "mango_guard": false,
       "config": {
@@ -116,13 +170,21 @@
         "leds": true,
         "led_level": 200,
         "native_player": false,
-        "alice_button": false
+        "alice_button": false,
+        "spectrum": true,
+        "spectrum_brightness": 1.0,
+        "spectrum_gain_r": 1.0,
+        "spectrum_gain_g": 1.0,
+        "spectrum_gain_b": 1.0,
+        "led_color_profile": ""
       }
     },
     {
       "target": "yandexmidi",
       "controls_config": true,
-      "sleep": [10],
+      "sleep": [
+        10
+      ],
       "dbus_export": true,
       "mango_guard": false,
       "config": {
@@ -132,16 +194,26 @@
         "leds": true,
         "led_level": 200,
         "native_player": true,
-        "alice_button": true
+        "alice_button": true,
+        "spectrum": true,
+        "spectrum_brightness": 1.0,
+        "spectrum_gain_r": 1.0,
+        "spectrum_gain_g": 1.0,
+        "spectrum_gain_b": 1.0,
+        "led_color_profile": ""
       }
     },
     {
       "target": "yandexmini",
       "controls_config": true,
-      "sleep": [4],
+      "sleep": [
+        4
+      ],
       "dbus_export": false,
       "mango_guard": false,
-      "models_append": ["YandexStationMini"],
+      "models_append": [
+        "YandexStationMini"
+      ],
       "config": {
         "voice": false,
         "native_volume": true,
@@ -149,13 +221,21 @@
         "leds": false,
         "led_level": 200,
         "native_player": false,
-        "alice_button": false
+        "alice_button": false,
+        "spectrum": true,
+        "spectrum_brightness": 1.0,
+        "spectrum_gain_r": 1.0,
+        "spectrum_gain_g": 1.0,
+        "spectrum_gain_b": 1.0,
+        "led_color_profile": ""
       }
     },
     {
       "target": "yandexmini_2",
       "controls_config": true,
-      "sleep": [4],
+      "sleep": [
+        4
+      ],
       "dbus_export": false,
       "mango_guard": false,
       "config": {
@@ -165,13 +245,21 @@
         "leds": true,
         "led_level": 200,
         "native_player": true,
-        "alice_button": true
+        "alice_button": true,
+        "spectrum": true,
+        "spectrum_brightness": 1.25,
+        "spectrum_gain_r": 1.0,
+        "spectrum_gain_g": 1.0,
+        "spectrum_gain_b": 1.0,
+        "led_color_profile": "red"
       }
     },
     {
       "target": "yandexplum",
       "controls_config": true,
-      "sleep": [4],
+      "sleep": [
+        4
+      ],
       "dbus_export": false,
       "mango_guard": false,
       "config": {
@@ -181,13 +269,21 @@
         "leds": true,
         "led_level": 200,
         "native_player": true,
-        "alice_button": true
+        "alice_button": true,
+        "spectrum": true,
+        "spectrum_brightness": 1.25,
+        "spectrum_gain_r": 1.5,
+        "spectrum_gain_g": 0.5,
+        "spectrum_gain_b": 0.71,
+        "led_color_profile": ""
       }
     },
     {
       "target": "yandexstation_2",
       "controls_config": true,
-      "sleep": [4],
+      "sleep": [
+        4
+      ],
       "dbus_export": false,
       "mango_guard": false,
       "config": {
@@ -197,7 +293,13 @@
         "leds": true,
         "led_level": 200,
         "native_player": true,
-        "alice_button": true
+        "alice_button": true,
+        "spectrum": false,
+        "spectrum_brightness": 1.0,
+        "spectrum_gain_r": 1.0,
+        "spectrum_gain_g": 1.0,
+        "spectrum_gain_b": 1.0,
+        "led_color_profile": ""
       }
     }
   ]

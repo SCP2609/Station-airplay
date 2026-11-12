@@ -15,21 +15,29 @@ launcher, а `scripts/package_yampkg.py` пересобирает пакеты �
 - `launch-airplay.sh.in` — общий launcher. Плейсхолдеры подставляет сборщик.
 - `requirements.txt` — PyYAML для чтения и записи `MANIFEST.yaml`.
 
-## Матрица 2.1.2 → 2.1.3
+## Матрица 2.1.4
 
 | Цель | Управление | Что меняется |
 |---|---|---|
-| `yandexstation_2`, `yandexmini_2`, `plum`, `yandexplum` | полное | без изменений |
+| `yandexstation_2` | полное | `spectrum: false`: большой экран, обложки не включаются |
+| `yandexmini_2` | полное | `spectrum: true`, `led_color_profile: "red"`, яркость `1.25` |
+| `plum`, `yandexplum` | полное | `spectrum: true`, яркость `1.25`, баланс белого `1.5/0.5/0.71` |
 | `yandexmidi`, `cucumber` | полное | добавлен `--controls-config`; включены `native_player` и `alice_button` |
 | `yandexmini` | только громкость | добавлен `--controls-config`; остальные флаги выключены |
 | `yandexmicro` | голос, ducking, громкость, индикация; native player при наличии Quasar CLI | без изменений |
 | `mango` | голос, ducking, индикация | без изменений |
-| `orion` | только звук | без изменений |
+| `orion` | только звук | `spectrum: false`: большой экран |
 | `bergamot` (Мини 3) | полный набор | включён controls-config; native volume через Luna >=0.2.25 для всех сборок на точной плате |
 | `pickle` (Мини 3 Про) | только звук | без изменений; база `bergamot`, AArch64-приёмник и `libplist`, model ID `yandexmini_3_pro` |
 
 `led_level` остаётся 200 у всех целей. Для аудио-профилей JSON всё равно
 создаётся launcher'ом при первом запуске, но не передаётся супервизору.
+
+Матрица 2.1.4 добавляет в конфиг `spectrum`, `spectrum_brightness`,
+`spectrum_gain_r/g/b` и `led_color_profile`. Обложки включены на всех целях с
+RGB-кольцом, кроме `yandexstation_2` и `orion` (Станция 2 и Станция 3). У
+`yandexmini` и `pickle` управление не передаётся, поэтому обложки начнут
+работать только после квалификации их shared-профиля.
 
 ## Сборка
 
@@ -40,7 +48,7 @@ python3 scripts/package_yampkg.py --check
 python3 scripts/package_yampkg.py \
   --base /path/to/published/2.1.2 \
   --binary /path/to/station-airplay-2.1.2.upx \
-  --version 2.1.3 \
+  --version 2.1.4 \
   --out dist/yampkg
 ```
 
@@ -63,7 +71,7 @@ ARMv7-супервизор; сборщик проверяет ELF32/EM_ARM. `--v
 - `config/airplay-controls-v2.json` — из матрицы.
 - `plugin.toml` — версия, список совместимых model ID и, для баз 2.0.9,
   узкие права `media.native` / `input.alice`.
-- `MANIFEST.yaml` — target, версия, `depends: yam/luna >=0.2.25` и все
+- `MANIFEST.yaml` — target, версия, `depends: yam/luna >=0.2.26` и все
   `files_sha256`, включая добавленные AArch64-файлы.
 
 Сборщик проверяет хеши базового пакета до правок и хеши результата после

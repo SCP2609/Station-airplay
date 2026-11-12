@@ -267,30 +267,67 @@ alsa = {
 // uiAsound is the receiver's private ~/.asoundrc. The file plugin feeds the
 // clock visualizer; its slave is the firmware shared mixer, not hw:0,0.
 func uiAsound(pcm, fifo string) string {
-	return fmt.Sprintf(`pcm.spk_file {
+	return uiAsoundSpectrum(pcm, fifo, "")
+}
+
+// uiAsoundSpectrum optionally adds a second file PCM in the chain so the
+// analyser gets its own copy of the same PCM without a second FIFO reader.
+func uiAsoundSpectrum(pcm, clockFIFO, spectrumFIFO string) string {
+	stream := pcm
+	var spectrumBlock string
+	if spectrumFIFO != "" {
+		spectrumBlock = fmt.Sprintf(`pcm.spk_spectrum_file {
  type file
  slave.pcm %q
  file %q
  format "raw"
  perm 0666
 }
-pcm.spk_tee {
- type plug
- slave.pcm "spk_file"
+`, stream, spectrumFIFO)
+		stream = "spk_spectrum_file"
+	}
+	var clockBlock string
+	if clockFIFO != "" {
+		clockBlock = fmt.Sprintf(`pcm.spk_file {
+ type file
+ slave.pcm %q
+ file %q
+ format "raw"
+ perm 0666
 }
-`, pcm, fifo)
+`, stream, clockFIFO)
+		stream = "spk_file"
+	}
+	return spectrumBlock + clockBlock + fmt.Sprintf(`pcm.spk_tee {
+ type plug
+ slave.pcm %q
+}
+`, stream)
 }
 
-func receiverControlConfig(p stationProfile, controls *controlsConfig) string {
+func receiverControlConfig(p stationProfile, controls *controlsConfig, spectrum ...bool) string {
 	config := receiverConfig(p)
 	if controls == nil {
 		return config
+	}
+	withSpectrum := len(spectrum) > 0 && spectrum[0]
+	if withSpectrum {
+		// The ALSA file plugin copies the same PCM into the analyser FIFO and
+		// passes it through to the station mixer. Audio is not re-routed.
+		config = strings.Replace(config, `output_device = "`+p.pcm+`"`, `output_device = "spk_tee"`, 1)
 	}
 	// Shairport's internal metadata hub also carries DACP credentials/client state.
 	// Disabling metadata disables remote-control discovery even with D-Bus built.
 	// Keep its unused FIFO private and volatile; never request artwork/cache files.
 	config = strings.Replace(config, `metadata = { enabled = "no"; };`,
 		`metadata = { enabled = "yes"; include_cover_art = "no"; pipe_name = "/run/station-airplay/control-metadata"; cover_art_cache_directory = "/run/station-airplay/coverart"; };`, 1)
+	if withSpectrum {
+		// Artwork is requested only for the LED visualiser. Normalise the cache
+		// key first so the non-UI template does not end up with a duplicate.
+		config = strings.Replace(config, `; cover_art_cache_directory = "/run/station-airplay/coverart"`, "", 1)
+		config = strings.Replace(config, `include_cover_art = "no"`,
+			`include_cover_art = "yes"; cover_art_cache_directory = "/run/station-airplay/coverart"`, 1)
+	}
 	// The default ten-second active tail keeps the playback indication lit after
 	// AirPlay has gone. A short tail still absorbs jitter without lingering.
 	config = strings.Replace(config, `sessioncontrol = { allow_session_interruption = "yes"; session_timeout = 60; };`,
@@ -452,9 +489,11 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 	if err = preflight(p); err != nil {
 		return err
 	}
-	var metaFD, audioFD int
+	var metaFD, audioFD, spectrumFD int
 	var pcm <-chan visualizerPCM
 	var pcmErrors <-chan error
+	var tap *spectrumTap
+	spectrum := controls != nil && controls.useSpectrum() && spectrumSupported(d)
 	if p.ui {
 		if p.sharedUI {
 			// The selected profile has already checked its capabilities. Do
@@ -468,7 +507,20 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 				return err
 			}
 		}
-		if err = os.WriteFile(filepath.Join(state, ".asoundrc"), []byte(uiAsound(p.pcm, audioFIFO)), 0600); err != nil {
+		if spectrum {
+			if err = os.MkdirAll(coverArtDir, 0700); err != nil {
+				return err
+			}
+			if spectrumFD, err = ensureFIFO(spectrumFIFO); err != nil {
+				return err
+			}
+			defer syscall.Close(spectrumFD)
+		}
+		clockFIFO, spectrumTapFIFO := audioFIFO, ""
+		if spectrum {
+			spectrumTapFIFO = spectrumFIFO
+		}
+		if err = os.WriteFile(filepath.Join(state, ".asoundrc"), []byte(uiAsoundSpectrum(p.pcm, clockFIFO, spectrumTapFIFO)), 0600); err != nil {
 			return err
 		}
 		if audioFD, err = ensureFIFO(audioFIFO); err != nil {
@@ -479,9 +531,29 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 			return err
 		}
 		defer syscall.Close(metaFD)
+		if spectrum {
+			tap = newSpectrumTap(coverArtDir)
+			if err = configureSpectrum(d, *controls, tap); err != nil {
+				return err
+			}
+			go tap.run(ctx, spectrumFD)
+		}
 		var stopPCM func()
 		pcm, pcmErrors, stopPCM = startVisualizerPCM(audioFD)
 		defer stopPCM() // Registered before child cleanup: keep draining until they stop.
+	} else if spectrum {
+		if err = os.MkdirAll(coverArtDir, 0700); err != nil {
+			return err
+		}
+		if err = os.WriteFile(filepath.Join(state, ".asoundrc"), []byte(uiAsoundSpectrum(p.pcm, "", spectrumFIFO)), 0600); err != nil {
+			return err
+		}
+		if spectrumFD, err = ensureFIFO(spectrumFIFO); err != nil {
+			return err
+		}
+		defer syscall.Close(spectrumFD)
+		tap = newSpectrumTap(coverArtDir)
+		go tap.run(ctx, spectrumFD)
 	}
 	for _, port := range []int{319, 320, 9000} {
 		socket, e := net.ListenPacket("udp4", fmt.Sprintf(":%d", port))
@@ -491,7 +563,7 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		socket.Close()
 	}
 	conf := filepath.Join(state, "shairport.conf")
-	config := receiverControlConfig(p, controls)
+	config := receiverControlConfig(p, controls, tap != nil)
 	if err = os.WriteFile(conf, []byte(config), 0600); err != nil {
 		return err
 	}
@@ -606,14 +678,18 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 					}
 				}
 			}
-			if e := serveControlsObserved(ctx, bus, api, d, *controls, observer); e != nil {
+			if e := serveControlsUI(ctx, bus, api, d, *controls, observer, tap, tap != nil && !p.ui); e != nil {
 				controlErrors <- e
 			}
 		}()
 	}
 	if p.ui {
+		var spectrumLevel uint8
+		if controls != nil {
+			spectrumLevel = spectrumLEDLevel(*controls)
+		}
 		fmt.Printf("%s model=%s protocol=AirPlay2 pcm=%s rate=%d Alice=shared UI=clock+led\n", version, p.models[0], p.pcm, profileOutputRate(p))
-		return renderDisplay(ctx, api, metaFD, exits, displayInput{profile: p, controls: controls, pcm: pcm, pcmErrors: pcmErrors, updates: controlUpdates, controlErrors: controlErrors})
+		return renderDisplay(ctx, api, metaFD, exits, displayInput{profile: p, controls: controls, pcm: pcm, pcmErrors: pcmErrors, updates: controlUpdates, controlErrors: controlErrors, tap: tap, spectrumLevel: spectrumLevel})
 	}
 	fmt.Printf("%s model=%s protocol=AirPlay2 pcm=%s Alice=shared UI=off\n", version, p.models[0], p.pcm)
 	select {
