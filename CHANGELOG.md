@@ -5,12 +5,15 @@
 - Runtime-бинарники (`shairport-sync-ap2`, `dbus-daemon`, `avahi-daemon`,
   `dbus-send`, `nqptp`) упаковываются UPX 5.2.1 только в архиве
   (`--slim-runtime`); установленный размер Mini 2 снижается с 11,3 до
-  7,3 МБ.
+  5,7 МБ.
 - Убрана вторая libc: `libc.so.6`, `ld-linux-armhf.so.3`, `libm`, `libdl`,
   `libpthread`, `librt`, `libresolv` и `libgcc_s` больше не поставляются.
   D-Bus, libplist, nqptp и avahi-namespace пересобраны под glibc ≤2.28.
-- Убраны `libmount`, `libblkid`, `libselinux` и `libpcre2`: приёмник не
-  перечисляет монтирования и не использует SELinux.
+- Убраны `libmount`, `libblkid`, `libselinux`, `libpcre2` и пакетная
+  `libasound.so.2`: приёмник использует ALSA прошивки, не перечисляет
+  монтирования и не работает с SELinux.
+- Для `yandexmini` без голосового управления убран блок `[commands].phrases`
+  (229 КБ → 544 Б); у голосовых моделей список фраз сохранён.
 - Shairport Sync обновлён до 5.6.3; патчи управления перебазированы.
 - Требуется Luna 0.2.26+.
 

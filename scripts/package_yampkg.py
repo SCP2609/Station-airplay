@@ -65,6 +65,7 @@ LUNA_DEPENDENCY = "yam/luna >=0.2.26"
 # no longer needs a second libc; the supervisor points children at lib/.
 PRUNE_RUNTIME = (
     "lib/ld-linux-armhf.so.3",
+    "lib/libasound.so.2",
     "lib/libmount.so.1",
     "lib/libblkid.so.1",
     "lib/libselinux.so.1",
@@ -275,6 +276,18 @@ def patch_plugin(path, base_version, version, models_append=()):
     Path(path).write_text(text)
 
 
+def strip_voice_commands(path):
+    """Models with voice disabled do not need the 214 KB phrase declaration."""
+    path = Path(path)
+    text = path.read_text()
+    text, count = re.subn(r"\n\[commands\]\nphrases = \[.*?\]\n", "\n", text, flags=re.S)
+    if count != 1:
+        raise SystemExit("%s: expected one [commands].phrases block" % path)
+    if '"commands", ' not in text:
+        raise SystemExit("%s: commands permission missing" % path)
+    path.write_text(text.replace('"commands", ', "", 1))
+
+
 def extra_file_relative(destination):
     return str(PLUGIN_REL / destination)[len("files/") :]
 
@@ -347,6 +360,11 @@ def verify_output(package, target, binary, version, launcher):
         plugin = archive.extractfile(str(PLUGIN_REL / "plugin.toml")).read().decode()
         if 'version = "%s"' % version not in plugin:
             raise SystemExit("%s: plugin version mismatch" % package)
+        if not target["config"]["voice"]:
+            if "\n[commands]\n" in plugin or '"commands"' in plugin:
+                raise SystemExit("%s: voice-disabled package still declares commands" % package)
+        elif "\n[commands]\nphrases = [" not in plugin:
+            raise SystemExit("%s: voice package lacks phrases" % package)
         for model in target.get("models_append", []):
             if '"%s"' % model not in plugin:
                 raise SystemExit("%s: compatibility model missing: %s" % (package, model))
@@ -474,6 +492,8 @@ def build_target(
             version,
             target.get("models_append", []),
         )
+        if not target["config"]["voice"]:
+            strip_voice_commands(plugin / "plugin.toml")
         patch_manifest(
             manifest,
             target["target"],

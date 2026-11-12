@@ -8,7 +8,6 @@
   "bin/shairport-sync-ap2-aarch64": "9e82c6af41c5f5b45f4c29bb80de9a3808398eaf5ec70f5fc3e908fe0b3bcc21",
   "bin/station-airplay": "5f59975c596133f805cf8956b504cda73492c9d2a814591a1a869cbe7f3a8173",
   "lib/aarch64/libplist-2.0.so.3": "e1c45ab78945b55da3a8006498ea39d7c4964672605f16bce29b58ec5759657d",
-  "lib/libasound.so.2": "547dfdc55aeb012d54a100bd26dff17479fea7889ea3096e880e7d40180cd43c",
   "lib/libavahi-client.so.3": "bc5d42899ed6bf37d66ad8d3d02abe45a1eb75eaa3639fd21c3c1ad581728dcc",
   "lib/libavahi-common.so.3": "dfe495f6bec59395ad76b608bd3a11afebc57b3ce51b0583c510f8fb399a96f4",
   "lib/libavahi-core.so.7": "b850244c1d2b0247f38b441a0a50d71818ff3ad1ff6dd2ffbef810301a0c5f02",
