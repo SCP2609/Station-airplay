@@ -500,5 +500,14 @@ func spectrumDefaults(d yamDevice, cfg controlsConfig) (gain [3]float64, profile
 	}
 	neutralBlack = d.Model != "yandexmini_2"
 	swap = d.Model == "yandexmini_2"
+	// Luna 0.2.26+ owns the stock matrix and the logical RGB contract for
+	// Mini 2. Older Luna needs the plugin-side workaround; detect it instead
+	// of assuming one release on both sides.
+	if feature(d, "led.calibration.v1") {
+		profile = ""
+	}
+	if feature(d, "led.color.logical-rgb.v1") {
+		swap = false
+	}
 	return gain, profile, neutralBlack, swap
 }

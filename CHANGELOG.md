@@ -8,6 +8,10 @@
   uses the stock `red` profile and the BGR pre-swap; Lite 2 uses no matrix.
 - Add a per-model colour check guide, an anonymised calibration panel, an
   issue template, and a guide for preparing colour fixes as PRs.
+- Detect Luna's `led.calibration.v1` and `led.color.logical-rgb.v1`
+  capabilities: on Luna 0.2.26+ the station applies the stock Mini 2 matrix and
+  logical RGB, and the plugin stops double-correcting. Older Luna keeps the
+  plugin-side fallback.
 - Add shared AirPlay clock visualization to clock-equipped Light 2 and Mini 3,
   and extend the Midi visualizer. Choose alternating wave/time, continuous
   wave, or native time, and a centered or bottom-up wave.

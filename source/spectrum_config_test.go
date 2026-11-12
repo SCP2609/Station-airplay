@@ -59,9 +59,15 @@ func TestSpectrumExcludesOnlyBigScreens(t *testing.T) {
 }
 
 func TestSpectrumDefaultsPerModel(t *testing.T) {
-	gain, profile, neutralBlack, swap := spectrumDefaults(yamDevice{Model: "yandexmini_2"}, controlsConfig{})
+	oldLuna := []string{"led.ring.rgb", "led.ring.6"}
+	gain, profile, neutralBlack, swap := spectrumDefaults(yamDevice{Model: "yandexmini_2", Features: oldLuna}, controlsConfig{})
 	if profile != "red" || !swap || neutralBlack || gain != [3]float64{1, 1, 1} {
 		t.Fatalf("Mini 2 defaults gain=%v profile=%s neutral=%t swap=%t", gain, profile, neutralBlack, swap)
+	}
+	newLuna := append(append([]string{}, oldLuna...), "led.calibration.v1", "led.color.logical-rgb.v1")
+	_, profile, _, swap = spectrumDefaults(yamDevice{Model: "yandexmini_2", Features: newLuna}, controlsConfig{})
+	if profile != "" || swap {
+		t.Fatalf("Mini 2 still applies the plugin workaround on Luna 0.2.26+: profile=%q swap=%t", profile, swap)
 	}
 	gain, profile, neutralBlack, swap = spectrumDefaults(yamDevice{Model: "yandexplum"}, controlsConfig{})
 	if gain != [3]float64{1.5, 0.5, 0.71} || profile != "" || !neutralBlack || swap {
