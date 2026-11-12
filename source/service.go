@@ -159,6 +159,10 @@ func (a *yamAPI) time(s string) error {
 func (a *yamAPI) segments(seg map[string]uint8) error {
 	return a.request("POST", "/clock", map[string]interface{}{"segments": seg}, nil)
 }
+
+func (a *yamAPI) musicSegments(seg map[string]uint8, policy clockMusicPolicy) error {
+	return a.request("POST", "/clock", map[string]interface{}{"segments": seg, "music": policy}, nil)
+}
 func (a *yamAPI) clockOff() error {
 	return a.request("POST", "/clock", map[string]interface{}{"off": true}, nil)
 }
@@ -193,6 +197,9 @@ type stationProfile struct {
 	// brightness writes detach her ring trigger. Hold both for the service
 	// lifetime; audio still goes through the shared PCM.
 	ui bool
+	// sharedUI uses the controller's fresh playback/speech lease to own the
+	// display, rather than the standalone renderer's service-lifetime UI.
+	sharedUI bool
 	// alsaLib: firmware ALSA preloaded into the ARMhf receiver so it joins
 	// Quasar's dmix with the same alsa-lib. Empty means /usr/lib/libasound.so.2.
 	alsaLib string
@@ -403,22 +410,27 @@ type airplayState struct {
 	status     string
 	title      string
 
-	volume        int
-	volumeUntil   time.Time
-	progress      progress
-	lastAudio     time.Time
-	level         float64
-	history       [4]float64
-	samples       int
-	offset        int
-	pcmWindow     [256]float64
-	pcmCount      int
-	wave          [32]float64
-	wavePos       int
-	waveAverageDB float64
-	waveSmooth    float64
-	waveInit      bool
-	pcmFrames     uint64
+	volume            int
+	volumeUntil       time.Time
+	volumeDown        bool
+	nativeVolumeKnown bool
+	nativeClockVolume bool
+	clockWaveStyle    string
+	progress          progress
+	pauseUntil        time.Time
+	lastAudio         time.Time
+	level             float64
+	history           [4]float64
+	samples           int
+	offset            int
+	pcmWindow         [256]float64
+	pcmCount          int
+	wave              [32]float64
+	wavePos           int
+	waveAverageDB     float64
+	waveSmooth        float64
+	waveInit          bool
+	pcmFrames         uint64
 	// senderVolume: a pvol arrived from the sender since the last forward to
 	// the station volume (only used with the station-volume package).
 	senderVolume bool
@@ -429,6 +441,7 @@ func (s *airplayState) showVolume(percent int, now time.Time) {
 	if percent == s.volume {
 		return
 	}
+	s.volumeDown = percent < s.volume
 	s.volume = percent
 	s.volumeUntil = now.Add(1700 * time.Millisecond)
 }
@@ -687,7 +700,10 @@ func segmentsFor(text string, colon bool) map[string]uint8 {
 // segment names part (A..G) of digit i (0..3) in the model's numbering.
 func segment(part rune, i int) string { return fmt.Sprintf("%c%d", part, i+hw.digitBase) }
 func (s *airplayState) display(now time.Time, tz *time.Location) (string, map[string]uint8) {
-	if now.Before(s.volumeUntil) {
+	if !s.nativeClockVolume && now.Before(s.volumeUntil) {
+		if hw.sharedUI && s.volumeDown {
+			return "", segmentsFor(fmt.Sprintf("%-4d", s.volume), false)
+		}
 		return "", segmentsFor(fmt.Sprintf("%4d", s.volume), false)
 	}
 	if s.status == "paused" {
@@ -695,12 +711,27 @@ func (s *airplayState) display(now time.Time, tz *time.Location) (string, map[st
 	}
 	if s.playing(now) {
 		result := map[string]uint8{}
-		// Original Plum/Alice wave: horizontal G midlines are always present,
+		// Centered wave: horizontal G midlines are always present,
 		// while A (top) and D (bottom) expand symmetrically on strong beats.
 		// Inner digits react first, then the outer digits -> outward ripple.
 		for digit, lag := range [4]int{3, 0, 0, 3} {
 			idx := (s.wavePos - 1 - lag + len(s.wave)*2) % len(s.wave)
 			lv := s.wave[idx]
+			if s.clockWaveStyle == "bottom_up" {
+				// Fill horizontal levels from bottom to top; retain the same
+				// audio envelope and outward delay as the centered style.
+				for level, part := range []rune{'D', 'G', 'A'} {
+					strength := math.Max(0, math.Min(1, lv*3-float64(level)))
+					value := uint8(math.Round(strength * float64(brightness)))
+					if level == 0 && value < 6 {
+						value = 6
+					}
+					if value > 0 {
+						result[segment(part, digit)] = value
+					}
+				}
+				continue
+			}
 			mid := uint8(math.Round(6 + lv*164))
 			result[segment('G', digit)] = mid
 			peak := math.Max(0, math.Min(1, (lv-.45)/.55))

@@ -219,3 +219,32 @@ func TestCenteredWaveAndOutwardLag(t *testing.T) {
 		}
 	}
 }
+
+func TestBottomUpWaveFillsFromBottom(t *testing.T) {
+	withProfile(t, plumProfile)
+	for _, tc := range []struct {
+		level               float64
+		wantD, wantG, wantA uint8
+	}{
+		{0, 6, 0, 0},
+		{0.2, 102, 0, 0},
+		{0.5, 170, 85, 0},
+		{1, 170, 170, 170},
+	} {
+		s := &airplayState{status: "playing", clockWaveStyle: "bottom_up", wavePos: 16}
+		for i := range s.wave {
+			s.wave[i] = tc.level
+		}
+		_, frame := s.display(time.Now(), time.UTC)
+		for digit := 0; digit < 4; digit++ {
+			if frame[segment('D', digit)] != tc.wantD || frame[segment('G', digit)] != tc.wantG || frame[segment('A', digit)] != tc.wantA {
+				t.Fatalf("level %g digit %d: got %v", tc.level, digit, frame)
+			}
+		}
+		for name := range frame {
+			if name[0] != 'A' && name[0] != 'D' && name[0] != 'G' {
+				t.Fatalf("unexpected segment %s", name)
+			}
+		}
+	}
+}

@@ -75,7 +75,34 @@ func TestMidiRendererReleasesAttachedButStoppedSender(t *testing.T) {
 	if !c.active {
 		t.Fatal("attached sender lost its voice-resume control session")
 	}
-	if ui := c.rendererState(now); ui.Session || ui.allowsPaint(now) {
+	if ui := c.rendererState(now); !ui.Attached || ui.Session || ui.allowsPaint(now) {
 		t.Fatal("retained event connection kept the renderer over Alice")
+	}
+}
+
+func TestRendererReceivesConfirmedPhoneVolumeWithoutAnotherPoll(t *testing.T) {
+	c, receiver, _ := testControls()
+	now := time.Now()
+	if err := c.tick(context.Background(), now); err != nil {
+		t.Fatal(err)
+	}
+	receiver.s.DB = percentDB(30)
+	if err := c.tick(context.Background(), now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	ui := c.rendererState(now.Add(time.Second))
+	if !ui.VolumeKnown || ui.Volume != 30 {
+		t.Fatalf("confirmed write not published immediately: known=%v volume=%d", ui.VolumeKnown, ui.Volume)
+	}
+}
+
+func TestLiteSenderCanSetFivePercentVolumeStep(t *testing.T) {
+	c, _, _ := testControls()
+	c.volumeStep = 5
+	if err := c.applySenderVolume(context.Background(), receiverState{DB: percentDB(35)}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if ui := c.rendererState(time.Now()); !ui.VolumeKnown || ui.Volume != 35 {
+		t.Fatalf("Lite lost native five-percent step: %+v", ui)
 	}
 }

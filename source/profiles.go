@@ -167,7 +167,7 @@ func validateControlRenderer(p stationProfile, controls *controlsConfig) error {
 	if controls == nil {
 		return nil
 	}
-	if p.ui && !isMidiProfile(p) {
+	if p.ui && !isMidiProfile(p) && !p.sharedUI {
 		return errors.New("shared controls on clock-equipped Light 2 require --shared-audio; upstream display mode cannot own the same UI")
 	}
 	if p.receiverABI == "aarch64" {
@@ -193,7 +193,30 @@ func validateControlRenderer(p stationProfile, controls *controlsConfig) error {
 func profileForDevice(d yamDevice, sharedAudio bool) (stationProfile, bool) {
 	p, ok := profileFor(d.Model)
 	if ok && (d.Model == "plum" || d.Model == "yandexplum") && (sharedAudio || !feature(d, "display.clock.segment.v1")) {
-		return plumSharedProfile, true
+		p = plumSharedProfile
+		// Enable the known three-zone layout only with all its capabilities.
+		// Clockless units and older hosts retain shared audio and controls.
+		if feature(d, "display.clock.segment.v1") && feature(d, "display.clock.music.v1") &&
+			feature(d, "led.ring.rgb") && feature(d, "led.ring.3") {
+			p.ui, p.sharedUI = true, true
+			p.leds, p.digitBase, p.colon = 3, 0, []string{"DH", "DL"}
+		}
+		return p, true
+	}
+	// Mini 3 previously used session RGB only. Require the new cooperative
+	// backend as well as the exact six-zone geometry before taking the clock.
+	if ok && (d.Model == "yandexmini3" || d.Model == "bergamot") &&
+		feature(d, "display.clock.segment.v1") && feature(d, "display.clock.music.v1") &&
+		feature(d, "led.ring.rgb") && feature(d, "led.ring.6") {
+		p.ui, p.sharedUI = true, true
+		p.leds, p.digitBase, p.colon = 6, 0, []string{"DH", "DL"}
+	}
+	// MIDI keeps its existing 1..4 digit geometry, 96 kHz shared PCM and
+	// 24-LED ring. Only switch display ownership when Luna exposes both the
+	// segment and clock-music APIs; older hosts retain the legacy renderer.
+	if ok && d.Model == "yandexmidi" &&
+		feature(d, "display.clock.segment.v1") && feature(d, "display.clock.music.v1") {
+		p.ui, p.sharedUI = true, true
 	}
 	return p, ok
 }
@@ -433,11 +456,17 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 	var pcm <-chan visualizerPCM
 	var pcmErrors <-chan error
 	if p.ui {
-		if api, err = newYAMAPI(); err != nil {
-			return err
-		}
-		if err = verifyYAM(api); err != nil {
-			return err
+		if p.sharedUI {
+			// The selected profile has already checked its capabilities. Do
+			// not paint a startup probe over Alice or the firmware clock.
+			hw = p
+		} else {
+			if api, err = newYAMAPI(); err != nil {
+				return err
+			}
+			if err = verifyYAM(api); err != nil {
+				return err
+			}
 		}
 		if err = os.WriteFile(filepath.Join(state, ".asoundrc"), []byte(uiAsound(p.pcm, audioFIFO)), 0600); err != nil {
 			return err

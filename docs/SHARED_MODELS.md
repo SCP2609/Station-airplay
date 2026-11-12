@@ -20,13 +20,13 @@ ABI — формат исполняемых программ и библиоте
 |---|---|---|---|
 | `yandexstation_2` | ARMhf | `plug:dmix_spk` | Общий микшер; shared-индикация framebuffer при включённом управлении |
 | `yandexmini_2` | ARMhf | `default` | Общий микшер; shared-индикация при наличии возможностей |
-| `plum`, `yandexplum` с `--shared-audio` | ARMhf | `speakers` | Общий микшер; без старого визуализатора часов |
+| `plum`, `yandexplum` с `--shared-audio` | ARMhf | `speakers` | Общий микшер и shared-визуализатор при наличии часов, трёх RGB-зон и поддержки Luna |
 | `plum`, `yandexplum` с сегментными часами без флага | ARMhf | `plug:dmix_spk` через `spk_tee` | Тот же звук плюс копия PCM для визуализатора |
 | `yandexmicro` | ARMhf | `plug:dmix_spk` | Общий микшер |
 | `yandexmini`, `YandexStationMini` | ARMhf | `softvol` | Общий микшер; ALSA из `/system/vendor/quasar/libs/libasound.so.2` |
 | `yandexstation_3` | ARMhf | `speakers` | Общий микшер; пакетный D-Bus |
 | `mango` | ARMhf | `speakers` | Общий микшер; индикация через sysfs (4 кольца, 3 логотипа) |
-| `bergamot`, `yandexmini3` | ARMhf | `speakers` | Общий микшер; управление через Luna, без визуализатора часов |
+| `bergamot`, `yandexmini3` | ARMhf | `speakers` | Общий микшер и shared-визуализатор при наличии часов, шести RGB-зон и поддержки Luna |
 | `yandexmini_3_pro` | AArch64 | `speakers` | Общий микшер; отдельный receiver ABI |
 | `yandexmidi` | ARMhf | `speakers` | Общий микшер; копия PCM для визуализатора Миди |
 
@@ -80,3 +80,5 @@ Go-профили находятся в [service.go](../source/service.go), вы
 сборки Bergamot отдельно не проверялись. Прошивка, проверка ABI, ограничения
 индикации и откат описаны в [отчёте](validation/MINI3_20261107.md).
 Штатные часы сохраняются; спектральной визуализации на них нет.
+
+[Режимы индикации в этой ветке](CONFIGURATION.md#индикация-airplay-на-часах-лайт-2-мини-3-и-миди).

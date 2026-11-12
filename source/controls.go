@@ -26,6 +26,10 @@ type controlsConfig struct {
 	LEDLevel         uint8        `json:"led_level,omitempty"`
 	NativePlayer     bool         `json:"native_player,omitempty"`
 	AliceButton      bool         `json:"alice_button,omitempty"`
+	ClockWaveStyle   string       `json:"clock_wave_style,omitempty"`
+	ClockMode        string       `json:"clock_mode,omitempty"`
+	ClockWaveSeconds int          `json:"clock_wave_seconds,omitempty"`
+	ClockTimeSeconds int          `json:"clock_time_seconds,omitempty"`
 	Group            *groupConfig `json:"group,omitempty"`
 }
 
@@ -63,6 +67,9 @@ func loadControls(path string) (*controlsConfig, error) {
 	}
 	if c.VolumeDependency != "" && (!c.NativeVolume || !validVolumeDependency(c.VolumeDependency)) {
 		return nil, errors.New("volume_dependency requires native_volume and a simple runtime alias")
+	}
+	if err := c.validateClock(); err != nil {
+		return nil, err
 	}
 	return &c, nil
 }
@@ -142,6 +149,12 @@ func quantizeVolumePercent(percent int) int {
 }
 
 func dbPercent(v float64) int {
+	return dbPercentStep(v, volumeStepPercent)
+}
+func dbPercentStep(v float64, step int) int {
+	if step <= 0 {
+		step = volumeStepPercent
+	}
 	if v == -144 {
 		return 0
 	}
@@ -152,7 +165,8 @@ func dbPercent(v float64) int {
 	if x > 1 {
 		x = 1
 	}
-	return quantizeVolumePercent(int(math.Round(100 * math.Pow(x, volumeCurveExponent))))
+	percent := math.Round(100 * math.Pow(x, volumeCurveExponent))
+	return int(math.Round(percent/float64(step))) * step
 }
 func percentDB(v int) float64 {
 	if v <= 0 {
@@ -172,6 +186,7 @@ func nativePercent(v float64) (int, error) {
 }
 
 type sharedController struct {
+	volumeStep                  int // Zero retains the historical sender step.
 	cfg                         controlsConfig
 	receiver                    controlReceiver
 	station                     controlStation
@@ -743,7 +758,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 }
 
 func (c *sharedController) applySenderVolume(ctx context.Context, s receiverState, now time.Time) error {
-	actual, err := c.station.SetVolume(ctx, dbPercent(s.DB))
+	actual, err := c.station.SetVolume(ctx, dbPercentStep(s.DB, c.volumeStep))
 	if err != nil {
 		c.volumeReady = false
 		return err
@@ -753,6 +768,10 @@ func (c *sharedController) applySenderVolume(ctx context.Context, s receiverStat
 		c.volumeReady = false
 		return err
 	}
+	// SetVolume returned a confirmed readback. Publish it to the renderer
+	// now instead of showing the previous level until the next poll.
+	c.nativeObserved = true
+	c.observedNative = native
 	c.lastNative = native
 	c.lastDB = s.DB
 	c.pendingNative = -1
