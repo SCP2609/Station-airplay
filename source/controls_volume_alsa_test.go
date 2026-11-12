@@ -91,6 +91,28 @@ func TestALSASetWritesUnmutesAndConfirms(t *testing.T) {
 	}
 }
 
+// A write must not wait for Luna's dead volume-manager port; the read stays
+// on Luna so the plugin sees the same level the station reports.
+func TestMixerWriteVolumeWritesMixerAndReadsLuna(t *testing.T) {
+	mixer, calls := amixerFixture(t, "10", true)
+	reader := &stubVolume{get: 41}
+	v := &mixerWriteVolume{reader: reader, mixer: mixer}
+	got, err := v.SetVolume(context.Background(), 60)
+	if err != nil || got != 60 {
+		t.Fatalf("SetVolume = %v, %v", got, err)
+	}
+	data, err := os.ReadFile(calls)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := string(data); text != "Master 60%\nunmute\n" {
+		t.Fatalf("unexpected amixer calls %q", text)
+	}
+	if current, err := v.GetVolume(context.Background()); err != nil || current != 41 {
+		t.Fatalf("GetVolume = %v, %v; want Luna's 41", current, err)
+	}
+}
+
 func TestALSASetRejectsReadbackMismatch(t *testing.T) {
 	v, _ := amixerFixture(t, "10", false)
 	if _, err := v.SetVolume(context.Background(), 90); err == nil {

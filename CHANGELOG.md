@@ -25,11 +25,17 @@
   (`general.audio_backend_buffer_desired_length_in_seconds`). AirPlay's own
   buffering still dominates, but start-up and resume no longer carry the
   extra 100 ms of receiver buffering.
-- Output a second ahead of the negotiated latency
-  (`general.audio_backend_latency_offset_in_seconds = -1.0`), which cuts the
-  audible start from about 2 s to about 1 s. Multi-room sync with other
-  AirPlay receivers is traded away by that offset; lower it if the link
-  underruns.
+- Output ahead of the negotiated latency
+  (`general.audio_backend_latency_offset_in_seconds = -1.6`), which cuts the
+  audible start from about 2 s to about 0.4 s. The setting lives in the shared
+  receiver config, so every model gets it. Multi-room sync with other AirPlay
+  receivers is traded away by that offset; lower it if the link underruns.
+- Prefer the artwork's chromatic clusters over its light background, so photo
+  covers stop painting the whole indication white or grey.
+- Write the station volume straight to the ALSA `Master` control when the
+  Quasar volume manager is configured but not listening. Luna's own write
+  retries that dead port on every change and takes about a second; the mixer
+  write takes milliseconds and Luna reads the same control back.
 - Repaint the indication while a session is active, not only inside Alice's
   three-second idle window. The first frame could be painted before the
   artwork arrived and then stay frozen until Alice spoke again, so a solid

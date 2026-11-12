@@ -99,35 +99,53 @@ func paletteCoverRGB(img image.Image, want int) [][3]float64 {
 		entries = append(entries, entry{count: bins[i].count, rgb: rgb})
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].count > entries[j].count })
-	out := make([][3]float64, 0, want)
+	// Album art is usually a photo on a white or cream background. Painting
+	// that background would leave the whole indication pale, so chromatic
+	// clusters win whenever the artwork has any; neutral ones are only used
+	// for genuinely grayscale covers.
+	var chromatic, neutral [][3]float64
+	seen := func(list [][3]float64, rgb [3]float64) bool {
+		for _, c := range list {
+			d := 0.0
+			for k := range c {
+				d += (c[k] - rgb[k]) * (c[k] - rgb[k])
+			}
+			if d < .20*.20 {
+				return true
+			}
+		}
+		return false
+	}
 	for _, e := range entries {
 		// Black is absence of light: the indication turns off instead of
 		// inventing a dim tint for a dark cover.
 		if math.Max(e.rgb[0], math.Max(e.rgb[1], e.rgb[2])) < .12 {
 			continue
 		}
-		duplicate := false
-		for _, c := range out {
-			d := 0.0
-			for k := range c {
-				d += (c[k] - e.rgb[k]) * (c[k] - e.rgb[k])
-			}
-			if d < .20*.20 {
-				duplicate = true
-				break
-			}
-		}
-		if duplicate {
-			continue
-		}
 		rgb := e.rgb
+		colored := false
 		if _, sat, _ := rgbHSV(rgb[0], rgb[1], rgb[2]); sat >= coverNeutralCutoff {
 			rgb = boostCoverSaturation(rgb)
+			colored = true
 		}
-		out = append(out, rgb)
-		if len(out) == want {
+		if colored {
+			if seen(chromatic, e.rgb) {
+				continue
+			}
+			chromatic = append(chromatic, rgb)
+		} else if !seen(neutral, rgb) {
+			neutral = append(neutral, rgb)
+		}
+		if len(chromatic) >= want && len(neutral) >= want {
 			break
 		}
+	}
+	out := chromatic
+	if len(out) == 0 {
+		out = neutral
+	}
+	if len(out) > want {
+		out = out[:want]
 	}
 	return out
 }

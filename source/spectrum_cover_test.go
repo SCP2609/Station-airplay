@@ -44,6 +44,30 @@ func parseHex(t *testing.T, s string) (int, int, int) {
 	return int(v>>16) & 0xff, int(v>>8) & 0xff, int(v) & 0xff
 }
 
+// Photo artwork is mostly a light background with a coloured subject. The
+// background must not win just because it covers the most pixels.
+func TestPaletteSkipsNeutralBackground(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			c := color.RGBA{245, 245, 246, 255}
+			if x >= 32 && y >= 32 {
+				c = color.RGBA{200, 20, 30, 255}
+			}
+			img.Set(x, y, c)
+		}
+	}
+	palette := paletteCoverRGB(img, 6)
+	if len(palette) == 0 {
+		t.Fatal("artwork with an accent produced no palette")
+	}
+	for _, c := range palette {
+		if _, sat, _ := rgbHSV(c[0], c[1], c[2]); sat < coverNeutralCutoff {
+			t.Fatalf("neutral background %v kept next to a chromatic accent", c)
+		}
+	}
+}
+
 // Two colour clusters in the artwork must reach two groups of zones: the
 // indication reflects the cover, not a single averaged tint.
 func TestSolidFrameSpreadsCoverPalette(t *testing.T) {
