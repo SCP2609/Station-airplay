@@ -50,19 +50,24 @@ static_flags() {
  for flag in $(pkg-config --libs --static "$@"); do
   case "$flag" in
    -lm|-ldl|-lpthread|-lrt|-lresolv|-ldbus-1|-pthread) printf '%s ' "$flag";;
+   -lmount|-lblkid|-lselinux|-lpcre2-8) ;;
    -l*) name=${flag#-l}; if [ -f "/usr/lib/$triplet/lib$name.a" ]; then printf '%s ' "/usr/lib/$triplet/lib$name.a"; else printf '%s ' "$flag"; fi;;
    *) printf '%s ' "$flag";;
   esac
  done
 }
 export glib_CFLAGS="$(pkg-config --cflags gio-unix-2.0)"
+# GLib's gunixmounts.o is the only consumer of libmount. The receiver never
+# enumerates mounts, so link the stubs and keep libmount/blkid/selinux/pcre2
+# out of the package.
+$CC $flags $(pkg-config --cflags gio-unix-2.0) -c "$ROOT/support/libmount-stub.c" -o "$out/prefix/lib/libmount-stub.o"
 export glib_LIBS="$(static_flags gio-unix-2.0)"
 if [ -d "$out/deps" ]; then
  export libgcrypt_CFLAGS="-I$out/deps/usr/include -I$out/deps/usr/include/$triplet"
  export libgcrypt_LIBS="$out/deps/usr/lib/$triplet/libgcrypt.a $out/deps/usr/lib/$triplet/libgpg-error.a"
 fi
-export LIBS="$(static_flags avahi-client) /usr/lib/$triplet/libsodium.a /usr/lib/$triplet/libpopt.a /usr/lib/$triplet/libconfig.a -ldbus-1 -ldl -lm -pthread"
-if [ ! -d sps ]; then tar -xf "$ROOT/third_party/shairport-sync-5.6.2.tar.gz"; mv shairport-sync-5.6.2 sps; fi
+export LIBS="$(static_flags avahi-client) /usr/lib/$triplet/libsodium.a /usr/lib/$triplet/libpopt.a /usr/lib/$triplet/libconfig.a $out/prefix/lib/libmount-stub.o -ldbus-1 -ldl -lm -pthread"
+if [ ! -d sps ]; then tar -xf "$ROOT/third_party/shairport-sync-5.6.3.tar.gz"; mv shairport-sync-5.6.3 sps; fi
 cd sps
 if ! grep -q station_set_stream_gain player.c; then patch -p1 < "$ROOT/support/shared-controls.patch"; fi
 if ! grep -q dacp_monitor_ipv4_endpoint_callback dacp.c; then patch -p1 < "$ROOT/support/dacp-ipv4-discovery.patch"; fi

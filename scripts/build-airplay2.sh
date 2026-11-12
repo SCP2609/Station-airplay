@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 P=${AP2_BUILD_ROOT:?Set AP2_BUILD_ROOT to the prepared sysroot/build directory}
 abi=$1
-for archive in shairport-sync-5.6.2.tar.gz nqptp-1.2.9.tar.gz ffmpeg-7.1.3.tar.xz; do cp "$ROOT/third_party/$archive" "$P/$archive"; done
+for archive in shairport-sync-5.6.3.tar.gz nqptp-1.2.9.tar.gz ffmpeg-7.1.3.tar.xz; do cp "$ROOT/third_party/$archive" "$P/$archive"; done
 case "$abi" in
  armhf) triplet=arm-linux-gnueabihf; ffarch=arm; cpu=cortex-a7; crypto=mbedtls; metadata=--with-metadata; extra="-mthumb -flto"; ssl=1.1 ;;
  arm64) triplet=aarch64-linux-gnu; ffarch=aarch64; cpu=cortex-a53; crypto=openssl; metadata=""; extra=""; ssl=3 ;;
@@ -61,9 +61,9 @@ if [ ! -f "$w/ffmpeg.done" ]; then
  )
  touch "$w/ffmpeg.done"
 fi
-if [ ! -d "$w/shairport-sync-5.6.2" ]; then tar -xf "$P/shairport-sync-5.6.2.tar.gz" -C "$w"; fi
+if [ ! -d "$w/shairport-sync-5.6.3" ]; then tar -xf "$P/shairport-sync-5.6.3.tar.gz" -C "$w"; fi
 (
- cd "$w/shairport-sync-5.6.2"
+ cd "$w/shairport-sync-5.6.3"
  if ! grep -q '"general.model"' shairport.c; then patch -p1 < "$ROOT/support/homepod-model.patch"; fi
  if ! grep -q 'cannot derive AirPlay identity' shairport.c; then patch -p1 < "$ROOT/support/mbedtls-ap2.patch"; fi
  autoreconf -fi > "$P/$abi/autoreconf.log" 2>&1

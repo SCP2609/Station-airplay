@@ -1,5 +1,5 @@
 {
-  "sources": {"shairport-sync-5.6.2.tar.gz": {"sha256": "0747706e19a64ec550ec8a6a5c26bf8e231a4d032de31644f5a5daa0632c41c4"}, "nqptp-1.2.9.tar.gz": {"sha256": "6aa1d73b8ee760bf19378c319db0d0537a867ff961764b150e19f87d96a02210"}, "ffmpeg-7.1.3.tar.xz": {"sha256": "f0bf043299db9e3caacb435a712fc541fbb07df613c4b893e8b77e67baf3adbe"}},
+  "sources": {"shairport-sync-5.6.3.tar.gz": {"sha256": "670f9cefdb9c2d70f7df71890e63ab0a31d08a815dd0734245d935bfd01e766e"}, "shairport-sync-5.6.2.tar.gz": {"sha256": "0747706e19a64ec550ec8a6a5c26bf8e231a4d032de31644f5a5daa0632c41c4"}, "nqptp-1.2.9.tar.gz": {"sha256": "6aa1d73b8ee760bf19378c319db0d0537a867ff961764b150e19f87d96a02210"}, "ffmpeg-7.1.3.tar.xz": {"sha256": "f0bf043299db9e3caacb435a712fc541fbb07df613c4b893e8b77e67baf3adbe"}},
   "build_packages": {
     "armhf": [
       {"Package": "libasound2", "Version": "1.2.8-1+b1", "Source": "alsa-lib (1.2.8-1)", "Filename": "pool/main/a/alsa-lib/libasound2_1.2.8-1+b1_armhf.deb", "SHA256": "97718ff5e552c9a7b9e77e8debbe219b0068a9ab5dcabedd0800c69dd8f0eb96"},

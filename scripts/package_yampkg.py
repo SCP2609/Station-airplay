@@ -65,6 +65,10 @@ LUNA_DEPENDENCY = "yam/luna >=0.2.26"
 # no longer needs a second libc; the supervisor points children at lib/.
 PRUNE_RUNTIME = (
     "lib/ld-linux-armhf.so.3",
+    "lib/libmount.so.1",
+    "lib/libblkid.so.1",
+    "lib/libselinux.so.1",
+    "lib/libpcre2-8.so.0",
     "lib/libc.so.6",
     "lib/libm.so.6",
     "lib/libdl.so.2",
@@ -74,6 +78,7 @@ PRUNE_RUNTIME = (
     "lib/libgcc_s.so.1",
 )
 REPLACE_RUNTIME = (
+    "bin/shairport-sync-ap2",
     "bin/dbus-daemon",
     "bin/dbus-send",
     "bin/nqptp",
