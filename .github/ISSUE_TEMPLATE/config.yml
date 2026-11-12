@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Проверка цветов и панель
+    url: https://github.com/ryysel/Station-airplay/blob/main/docs/COLOR_CHECK.md
+    about: Как проверить цвета и подготовить данные для отчёта
+  - name: Как подготовить PR по цвету
+    url: https://github.com/ryysel/Station-airplay/blob/main/docs/COLOUR_PR_GUIDE.md
+    about: Пошаговое руководство для исправления цвета и индикации

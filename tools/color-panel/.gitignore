@@ -1,0 +1,4 @@
+targets.json
+panel-values.json
+__pycache__/
+*.pyc

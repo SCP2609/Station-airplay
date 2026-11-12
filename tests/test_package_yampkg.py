@@ -21,7 +21,10 @@ matrix = module.load_matrix(MATRIX)
 module.validate_matrix(matrix)
 template = TEMPLATE.read_text()
 module.check(matrix, template)
-assert module.LUNA_DEPENDENCY == "yam/luna >=0.2.25"
+assert module.LUNA_DEPENDENCY == "yam/luna >=0.2.26"
+plugin_toml = (ROOT / "plugin.toml").read_text()
+assert "Требует Luna 0.2.26+." in plugin_toml
+assert module.luna_requirement_text() == "Требует Luna 0.2.26+."
 by_target = {target["target"]: target for target in matrix["targets"]}
 
 assert set(by_target) == {
@@ -48,6 +51,14 @@ assert by_target["yandexmidi"]["config"]["native_player"]
 assert by_target["yandexmidi"]["config"]["alice_button"]
 assert by_target["cucumber"]["config"]["native_player"]
 assert by_target["cucumber"]["config"]["alice_button"]
+SPECTRUM = {
+    "spectrum": True,
+    "spectrum_brightness": 1.0,
+    "spectrum_gain_r": 1.0,
+    "spectrum_gain_g": 1.0,
+    "spectrum_gain_b": 1.0,
+    "led_color_profile": "",
+}
 assert by_target["yandexmini"]["config"] == {
     "voice": False,
     "native_volume": True,
@@ -56,6 +67,7 @@ assert by_target["yandexmini"]["config"] == {
     "led_level": 200,
     "native_player": False,
     "alice_button": False,
+    **SPECTRUM,
 }
 assert by_target["yandexmini"]["models_append"] == ["YandexStationMini"]
 
@@ -68,8 +80,31 @@ full = {
     "native_player": True,
     "alice_button": True,
 }
-for name in ("bergamot", "plum", "yandexplum", "yandexmini_2", "yandexstation_2"):
-    assert by_target[name]["config"] == full, name
+lite_tuning = {
+    "spectrum": True,
+    "spectrum_brightness": 1.25,
+    "spectrum_gain_r": 1.5,
+    "spectrum_gain_g": 0.5,
+    "spectrum_gain_b": 0.71,
+    "led_color_profile": "",
+}
+mini2_tuning = {
+    "spectrum": True,
+    "spectrum_brightness": 1.25,
+    "spectrum_gain_r": 1.0,
+    "spectrum_gain_g": 1.0,
+    "spectrum_gain_b": 1.0,
+    "led_color_profile": "red",
+}
+assert by_target["bergamot"]["config"] == {**full, **SPECTRUM}
+assert by_target["plum"]["config"] == {**full, **lite_tuning}
+assert by_target["yandexplum"]["config"] == {**full, **lite_tuning}
+assert by_target["yandexmini_2"]["config"] == {**full, **mini2_tuning}
+# Big-screen stations keep their native indication, never artwork covers.
+assert by_target["yandexstation_2"]["config"] == {**full, **SPECTRUM, "spectrum": False}
+assert by_target["orion"]["config"]["spectrum"] is False
+assert by_target["cucumber"]["config"]["spectrum"] is True
+assert by_target["mango"]["config"]["spectrum"] is True
 assert by_target["yandexmicro"]["config"] == {
     "voice": True,
     "native_volume": True,
@@ -78,6 +113,7 @@ assert by_target["yandexmicro"]["config"] == {
     "led_level": 200,
     "native_player": False,
     "alice_button": False,
+    **SPECTRUM,
 }
 assert by_target["mango"]["config"]["native_volume"] is False
 assert by_target["mango"]["config"]["native_player"] is False

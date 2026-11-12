@@ -1,5 +1,20 @@
-## Unreleased
+## 2.1.4
 
+- Show the dominant album-artwork colour and the real PCM spectrum on every
+  controlled RGB ring. Station 2 and Station 3 keep their native big-screen
+  indication and never receive artwork frames.
+- Keep greys, white and cream neutral, turn a black cover off instead of
+  inventing a tint, and let each model apply its own white balance. Mini 2
+  uses the stock `red` profile and the BGR pre-swap; Lite 2 uses no matrix.
+- Add a per-model colour check guide, an anonymised calibration panel, an
+  issue template, and a guide for preparing colour fixes as PRs.
+- Detect Luna's `led.calibration.v1` and `led.color.logical-rgb.v1`
+  capabilities: on Luna 0.2.26+ the station applies the stock Mini 2 matrix and
+  logical RGB, and the plugin stops double-correcting. Older Luna keeps the
+  plugin-side fallback.
+- The package description now states the required Luna version
+  (`Требует Luna 0.2.26+.`). The YAM v2 builder takes it from `plugin.toml`
+  and refuses a manifest whose description omits it.
 - Add shared AirPlay clock visualization to clock-equipped Light 2 and Mini 3,
   and extend the Midi visualizer. Choose alternating wave/time, continuous
   wave, or native time, and a centered or bottom-up wave.

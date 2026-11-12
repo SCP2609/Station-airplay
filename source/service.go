@@ -29,10 +29,13 @@ import (
 )
 
 const (
-	version      = "Station airplay 2.1.3"
-	audioFIFO    = "/tmp/sps.fifo"
-	metadataFIFO = "/tmp/shairport-sync-ap2-metadata"
-	brightness   = 170
+	version             = "Station airplay 2.1.4"
+	audioFIFO           = "/tmp/sps.fifo"
+	spectrumFIFO        = "/tmp/sps-spectrum.fifo"
+	metadataFIFO        = "/tmp/shairport-sync-ap2-metadata"
+	controlMetadataFIFO = "/run/station-airplay/control-metadata"
+	coverArtDir         = "/run/station-airplay/coverart"
+	brightness          = 170
 )
 
 type yamAPI struct {

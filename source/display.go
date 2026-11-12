@@ -15,6 +15,10 @@ type displayInput struct {
 	pcmErrors     <-chan error
 	updates       <-chan rendererControlState
 	controlErrors <-chan error
+	// tap renders artwork-based spectrum colours for the ring. It is nil when
+	// the model has no spectrum or the controller already owns the ring.
+	tap           *spectrumTap
+	spectrumLevel uint8
 }
 
 const pauseDisplayDuration = 1800 * time.Millisecond
@@ -97,6 +101,9 @@ func renderDisplay(ctx context.Context, api *yamAPI, metaFD int, exits <-chan ex
 			}
 		case block := <-input.pcm:
 			state.audio(block.data, block.at)
+			if input.tap != nil {
+				input.tap.feedAudio(block.data, block.at)
+			}
 		case now := <-tick.C:
 			if e := readFD(metaFD, func(buf []byte) {
 				state.meta.feed(buf, func(t, c string, raw []byte) {
@@ -135,6 +142,9 @@ func renderDisplay(ctx context.Context, api *yamAPI, metaFD int, exits <-chan ex
 				released = false
 			}
 			colors := state.ringFrame(now)
+			if input.tap != nil && input.spectrumLevel > 0 && !now.Before(state.volumeUntil) && state.status != "paused" && state.playing(now) {
+				colors = input.tap.frame(hw.leds, input.spectrumLevel)
+			}
 			ringKey := strings.Join(colors, ",")
 			if ringKey != oldRing || now.Sub(lastRingSent) > 3*time.Second {
 				e := api.leds(colors)
