@@ -1,3 +1,14 @@
+## Unreleased
+
+- Add shared AirPlay clock visualization to clock-equipped Light 2 and Mini 3,
+  and extend the Midi visualizer. Choose alternating wave/time, continuous
+  wave, or native time, and a centered or bottom-up wave.
+- Preserve native volume and Alice display priority. On supported hosts,
+  continuous wave temporarily hides native time and restores its preference
+  when AirPlay releases the display. Pausing briefly shows `PAUS`.
+- Keep native volume in sync on Light 2, including 5% sender volume steps
+  and immediate feedback from the confirmed station level.
+
 ## 2.1.3
 
 - Retain the 10% sender-to-station volume write grid and exponent-0.8

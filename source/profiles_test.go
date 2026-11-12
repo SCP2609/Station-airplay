@@ -187,10 +187,17 @@ func TestClocklessLiteUsesSharedAudio(t *testing.T) {
 // Shared audio must therefore be explicit, not inferred from clock absence.
 func TestPlumSharedOptInWithReportedClock(t *testing.T) {
 	for _, model := range []string{"plum", "yandexplum"} {
-		d := yamDevice{Model: model, Architecture: "aarch64", Features: []string{"display.clock.segment.v1", "led.ring.rgb", "led.ring.3", "audio.volume.alsa"}}
+		d := yamDevice{Model: model, Architecture: "aarch64", Features: []string{"display.clock.segment.v1", "display.clock.music.v1", "led.ring.rgb", "led.ring.3", "audio.volume.alsa"}}
 		p, ok := profileForDevice(d, true)
-		if !ok || p.pcm != "speakers" || !p.quasarCoexist || p.receiverABI != "armhf" || p.leds != 0 {
-			t.Fatalf("shared opt-in entered exclusive/UI profile: %+v", p)
+		if !ok || p.pcm != "speakers" || !p.quasarCoexist || p.receiverABI != "armhf" || p.leds != 3 || !p.ui {
+			t.Fatalf("shared clock profile lost its mixer or display: %+v", p)
+		}
+		if err := validateControlRenderer(p, &controlsConfig{LEDs: true, Voice: true}); err != nil {
+			t.Fatalf("shared clock disabled controls: %v", err)
+		}
+		conf := receiverControlConfig(p, &controlsConfig{NativeVolume: true})
+		if !strings.Contains(conf, `output_device = "spk_tee"`) || !strings.Contains(conf, metadataFIFO) {
+			t.Fatal("shared clock is not receiving PCM and metadata")
 		}
 		legacy, ok := profileForDevice(d, false)
 		if !ok || legacy.pcm != "plug:dmix_spk" || legacy.leds != 3 || !legacy.ui || !legacy.quasarCoexist {
@@ -199,6 +206,57 @@ func TestPlumSharedOptInWithReportedClock(t *testing.T) {
 	}
 	if _, ok := profileForDevice(yamDevice{Model: "unknown"}, true); ok {
 		t.Fatal("shared mode must not bypass the model guard")
+	}
+}
+
+func TestLiteSharedDisplayRequiresCompleteCapabilities(t *testing.T) {
+	for _, features := range [][]string{
+		nil,
+		{"display.clock.music.v1", "led.ring.rgb", "led.ring.3"},
+		{"display.clock.segment.v1", "display.clock.music.v1", "led.ring.3"},
+		{"display.clock.segment.v1", "display.clock.music.v1", "led.ring.rgb"},
+	} {
+		p, ok := profileForDevice(yamDevice{Model: "yandexplum", Features: features}, true)
+		if !ok || p.ui || p.pcm != "speakers" {
+			t.Fatalf("incomplete display capabilities must retain shared audio: %+v", p)
+		}
+		if err := validateControlRenderer(p, &controlsConfig{LEDs: true, Voice: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestLiteMusicClockPolicyRequiresHostCapability(t *testing.T) {
+	features := []string{"display.clock.segment.v1", "led.ring.rgb", "led.ring.3"}
+	oldHost, _ := profileForDevice(yamDevice{Model: "yandexplum", Features: features}, true)
+	if oldHost.ui || oldHost.sharedUI {
+		t.Fatal("old host must retain shared audio without taking the clock")
+	}
+	features = append(features, "display.clock.music.v1")
+	newHost, _ := profileForDevice(yamDevice{Model: "yandexplum", Features: features}, true)
+	if !newHost.sharedUI || newHost.pcm != "speakers" {
+		t.Fatal("new Lite host lost configurable clock or shared mixer")
+	}
+}
+
+func TestMidiMusicClockRequiresBothHostCapabilities(t *testing.T) {
+	features := []string{"display.clock.segment.v1", "display.clock.music.v1"}
+	legacy, ok := profileForDevice(yamDevice{Model: "yandexmidi"}, true)
+	if !ok || !legacy.ui || legacy.sharedUI {
+		t.Fatalf("legacy MIDI host lost its existing renderer: %+v", legacy)
+	}
+	for _, partial := range [][]string{
+		{"display.clock.segment.v1"},
+		{"display.clock.music.v1"},
+	} {
+		p, ok := profileForDevice(yamDevice{Model: "yandexmidi", Features: partial}, true)
+		if !ok || !p.ui || p.sharedUI {
+			t.Fatalf("partial MIDI clock capabilities changed fallback: %+v", p)
+		}
+	}
+	p, ok := profileForDevice(yamDevice{Model: "yandexmidi", Features: features}, true)
+	if !ok || !p.ui || !p.sharedUI || p.pcm != "speakers" || p.outputRate != 96000 || p.leds != 24 || p.digitBase != 1 || len(p.colon) != 0 {
+		t.Fatalf("capable MIDI host lost existing audio or display geometry: %+v", p)
 	}
 }
 
@@ -214,7 +272,7 @@ func TestControlsDoNotSilentlyLoseTheirLoopToUpstreamDisplay(t *testing.T) {
 	if err := validateControlRenderer(upstream, &controlsConfig{}); err == nil || !strings.Contains(err.Error(), "--shared-audio") {
 		t.Fatalf("display and controls were combined: %v", err)
 	}
-	audioOnly, ok := profileForDevice(clock, true)
+	audioOnly, ok := profileForDevice(clock, true) // Incomplete ring capabilities must keep audio available.
 	if !ok || audioOnly.ui {
 		t.Fatal("explicit shared mode retained upstream renderer")
 	}
@@ -315,5 +373,38 @@ func TestMidiUsesSharedMixerAndKeepsDisplay(t *testing.T) {
 	}
 	if got := uiAsound(p.pcm, audioFIFO); !strings.Contains(got, `slave.pcm "speakers"`) || strings.Contains(got, "hw:0,0") || strings.Contains(got, "type null") {
 		t.Fatalf("visualizer tee bypasses the shared mixer: %s", got)
+	}
+}
+
+func TestMini3ClockRequiresCompleteCapabilities(t *testing.T) {
+	features := []string{"display.clock.segment.v1", "display.clock.music.v1", "led.ring.rgb", "led.ring.6"}
+	for _, model := range []string{"yandexmini3", "bergamot"} {
+		for _, shared := range []bool{false, true} {
+			p, ok := profileForDevice(yamDevice{Model: model, Features: features}, shared)
+			if !ok || !p.ui || !p.sharedUI || p.leds != 6 || p.digitBase != 0 || strings.Join(p.colon, ",") != "DH,DL" {
+				t.Fatalf("Mini3 missing shared clock geometry: %+v", p)
+			}
+			if p.pcm != "speakers" || p.receiverABI != "armhf" || !p.quasarCoexist {
+				t.Fatal("changed Mini3 audio contract")
+			}
+			if err := validateControlRenderer(p, &controlsConfig{LEDs: true, NativeVolume: true}); err != nil {
+				t.Fatal(err)
+			}
+			if cfg := receiverConfig(p); !strings.Contains(cfg, `output_device = "spk_tee"`) || !strings.Contains(cfg, `enabled = "yes"`) {
+				t.Fatal("missing PCM/metadata tap")
+			}
+		}
+		for missing := range features {
+			partial := append([]string{}, features[:missing]...)
+			partial = append(partial, features[missing+1:]...)
+			p, ok := profileForDevice(yamDevice{Model: model, Features: partial}, false)
+			if !ok || p.ui || p.sharedUI || p.pcm != "speakers" {
+				t.Fatalf("unsafe Mini3 fallback: %+v", p)
+			}
+		}
+	}
+	p, _ := profileForDevice(yamDevice{Model: "yandexmini_3_pro", Features: features}, true)
+	if p.ui || p.sharedUI {
+		t.Fatal("Mini3 Pro enabled accidentally")
 	}
 }

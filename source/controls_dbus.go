@@ -154,6 +154,9 @@ func serveControlsObserved(ctx context.Context, bus string, api *yamAPI, d yamDe
 		}
 	}
 	c := &sharedController{cfg: cfg, receiver: r, station: station, ledCount: ledCount, rendererUpdate: observer}
+	if d.Model == "plum" || d.Model == "yandexplum" {
+		c.volumeStep = 5
+	}
 	if cfg.NativePlayer {
 		if _, err := lunaServerRoot(api.base); err == nil {
 			native := newLunaNativePlayer(api)
