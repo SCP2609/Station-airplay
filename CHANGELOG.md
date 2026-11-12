@@ -25,9 +25,15 @@
   (`general.audio_backend_buffer_desired_length_in_seconds`). AirPlay's own
   buffering still dominates, but start-up and resume no longer carry the
   extra 100 ms of receiver buffering.
-- Output 50 ms ahead of the negotiated latency
-  (`general.audio_backend_latency_offset_in_seconds = -0.05`), which shortens
-  the audible start without touching A/V sync.
+- Output a second ahead of the negotiated latency
+  (`general.audio_backend_latency_offset_in_seconds = -1.0`), which cuts the
+  audible start from about 2 s to about 1 s. Multi-room sync with other
+  AirPlay receivers is traded away by that offset; lower it if the link
+  underruns.
+- Repaint the indication while a session is active, not only inside Alice's
+  three-second idle window. The first frame could be painted before the
+  artwork arrived and then stay frozen until Alice spoke again, so a solid
+  indication kept an old or placeholder colour for a whole track.
 - Capability gating is unchanged: a host that does not advertise speech, LED
   or the native player still degrades per feature with a logged reason instead
   of losing audio. See `docs/validation/MINI_20261112.md`.

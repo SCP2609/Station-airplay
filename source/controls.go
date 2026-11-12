@@ -636,7 +636,12 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 	// native volume has settled: its overlay can replace our one-shot frame.
 	// An observed legacy renderer remains the sole UI owner. Keep LEDs in
 	// the config so indication-only setups still subscribe to Alice's state.
-	if c.cfg.LEDs && c.rendererUpdate == nil && c.ledCount > 0 && c.aliceIdle && now.Before(c.speechFreshUntil) && !c.ledSuspended && !now.Before(c.ledQuietUntil) {
+	// Alice's idle window grants a repaint right after she stops talking. A
+	// running session must keep repainting outside it as well: otherwise the
+	// first frame painted before the artwork arrived stays on the LEDs until
+	// Alice speaks again, and a new track never recolours them.
+	fresh := now.Before(c.speechFreshUntil)
+	if c.cfg.LEDs && c.rendererUpdate == nil && c.ledCount > 0 && c.aliceIdle && (fresh || c.active) && !c.ledSuspended && !now.Before(c.ledQuietUntil) {
 		state := "playing"
 		if !s.Active || now.Before(c.pausedUntil) {
 			state = "paused"

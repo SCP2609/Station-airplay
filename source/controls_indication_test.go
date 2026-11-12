@@ -36,19 +36,28 @@ func TestUnavailableFeedbackDoesNotStarveIndication(t *testing.T) {
 	}
 }
 
-func TestIndicationRefreshRequiresFreshIdle(t *testing.T) {
-	c, _, s := testControls()
+// A playing session must keep repainting outside Alice's three-second idle
+// window: otherwise the frame painted before the artwork arrived stays on the
+// LEDs and a later track never recolours them.
+func TestIndicationRefreshFollowsActiveSession(t *testing.T) {
+	c, r, s := testControls()
 	ctx := context.Background()
 	now := time.Now()
 	c.speechFreshUntil = now.Add(2 * time.Second)
+	r.s.Active = false
 	_ = c.tick(ctx, now)
-	_ = c.tick(ctx, now.Add(4*time.Second))
-	if len(s.frames) != 1 {
-		t.Fatal("stale idle allowed a refresh")
+	if len(s.frames) != 0 {
+		t.Fatal("inactive session painted indication")
 	}
-	_ = c.speech(ctx, speechEvent{Phase: "idle"}, now.Add(5*time.Second))
+	r.s.Active = true
+	_ = c.tick(ctx, now.Add(4*time.Second))
 	_ = c.tick(ctx, now.Add(5*time.Second))
-	if len(s.frames) != 2 {
+	if len(s.frames) < 2 {
+		t.Fatalf("active session refreshed indication %d times, want a repaint cadence", len(s.frames))
+	}
+	_ = c.speech(ctx, speechEvent{Phase: "idle"}, now.Add(6*time.Second))
+	_ = c.tick(ctx, now.Add(6*time.Second))
+	if len(s.frames) < 3 {
 		t.Fatal("fresh idle did not restore indication")
 	}
 }
