@@ -615,10 +615,17 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		}()
 		return nil
 	}
-	launch := func(name, bin string, args ...string) error {
-		return launchWith(name, bin, libEnv, args...)
+	childEnv := func(bin string) []string {
+		if strings.HasPrefix(bin, root+string(filepath.Separator)) {
+			return libEnv
+		}
+		// Firmware tools such as /usr/bin/dbus-daemon must keep their own libdbus.
+		return env
 	}
-	if err = startPrivateMDNS(ctx, root, state, p, libEnv, launch, exits); err != nil {
+	launch := func(name, bin string, args ...string) error {
+		return launchWith(name, bin, childEnv(bin), args...)
+	}
+	if err = startPrivateMDNS(ctx, root, state, p, childEnv, launch, exits); err != nil {
 		return err
 	}
 	ready := func(stage string, check func(context.Context) error) error {

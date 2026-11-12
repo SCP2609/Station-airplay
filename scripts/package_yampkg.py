@@ -73,7 +73,14 @@ PRUNE_RUNTIME = (
     "lib/libresolv.so.2",
     "lib/libgcc_s.so.1",
 )
-REPLACE_RUNTIME = ("bin/dbus-daemon", "bin/dbus-send", "lib/libdbus-1.so.3", "lib/libplist-2.0.so.3")
+REPLACE_RUNTIME = (
+    "bin/dbus-daemon",
+    "bin/dbus-send",
+    "bin/nqptp",
+    "bin/avahi-namespace",
+    "lib/libdbus-1.so.3",
+    "lib/libplist-2.0.so.3",
+)
 
 
 def sha256_bytes(data):

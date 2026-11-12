@@ -36,7 +36,7 @@ func preparePrivateMDNS(state, systemDir string) (string, error) {
 
 // launch owns and monitors each child before readiness probes start. Both
 // audio engines use the same isolated mDNS stack, including on clean firmware.
-func startPrivateMDNS(ctx context.Context, root, state string, p stationProfile, env []string, launch func(string, string, ...string) error, exits <-chan exitInfo) error {
+func startPrivateMDNS(ctx context.Context, root, state string, p stationProfile, envFor func(string) []string, launch func(string, string, ...string) error, exits <-chan exitInfo) error {
 	bus := filepath.Join(state, "private-bus")
 	dbusBin, dbusArgs := dbusCommand(root, p, "dbus-daemon")
 	if err := launch("dbus-daemon", dbusBin, append(dbusArgs, "--config-file="+filepath.Join(state, "bus.conf"), "--nofork")...); err != nil {
@@ -71,7 +71,7 @@ func startPrivateMDNS(ctx context.Context, root, state string, p stationProfile,
 		defer cancel()
 		sendBin, sendArgs := dbusCommand(root, p, "dbus-send")
 		c := exec.CommandContext(checkCtx, sendBin, append(sendArgs, "--system", "--print-reply", "--dest=org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus.NameHasOwner", "string:org.freedesktop.Avahi")...)
-		c.Env = env
+		c.Env = envFor(sendBin)
 		b, err := c.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("Avahi NameHasOwner: %w: %.1024s", err, b)
