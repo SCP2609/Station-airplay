@@ -257,8 +257,8 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main():
-    server = ThreadingHTTPServer(("192.168.0.83", 8799), Handler)
-    print("panel bridge on http://192.168.0.83:8799", flush=True)
+    server = ThreadingHTTPServer(("192.168.0.109", 8799), Handler)
+    print("panel bridge on http://192.168.0.109:8799", flush=True)
     server.serve_forever()
 
 

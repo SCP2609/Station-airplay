@@ -230,7 +230,7 @@ func receiverConfig(p stationProfile) string {
  // Play 1.6 s ahead of the negotiated latency: about 2 s from the sender
  // minus the 0.1 s back-end buffer leaves roughly 0.3 s of software buffer.
  // Every model shares this config, so the offset applies station-wide.
- audio_backend_latency_offset_in_seconds = -1.6;
+ audio_backend_latency_offset_in_seconds = -1.7;
 };
 sessioncontrol = { allow_session_interruption = "yes"; session_timeout = 60; };
 alsa = {
