@@ -71,6 +71,9 @@ ARMv7-супервизор; сборщик проверяет ELF32/EM_ARM. `--v
 - `config/airplay-controls-v2.json` — из матрицы.
 - `plugin.toml` — версия, список совместимых model ID и, для баз 2.0.9,
   узкие права `media.native` / `input.alice`.
+- `description` в `MANIFEST.yaml` — берётся из `plugin.toml`. Сборщик
+  отказывается собирать пакет, если в описании нет фразы
+  `Требует Luna <версия>+.` из `LUNA_DEPENDENCY`.
 - `MANIFEST.yaml` — target, версия, `depends: yam/luna >=0.2.26` и все
   `files_sha256`, включая добавленные AArch64-файлы.
 

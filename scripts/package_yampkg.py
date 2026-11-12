@@ -247,12 +247,21 @@ def extra_file_relative(destination):
     return str(PLUGIN_REL / destination)[len("files/") :]
 
 
-def patch_manifest(manifest, target, version, stage, extra_files=()):
+def luna_requirement_text():
+    version = LUNA_DEPENDENCY.split(">=", 1)[-1].strip()
+    return "Требует Luna %s+." % version
+
+
+def patch_manifest(manifest, target, version, stage, extra_files=(), description=None):
     manifest["target"] = target
     manifest["version"] = version
     depends = [item for item in manifest.get("depends", []) if not item.startswith("yam/luna")]
     depends.append(LUNA_DEPENDENCY)
     manifest["depends"] = depends
+    if description is not None:
+        manifest["description"] = description
+    if luna_requirement_text() not in manifest.get("description", ""):
+        raise SystemExit("%s: manifest description does not state %s" % (target, luna_requirement_text()))
     for destination in extra_files:
         relative = extra_file_relative(destination)
         path = Path(stage) / "files" / relative
@@ -280,6 +289,8 @@ def verify_output(package, target, binary, version, launcher):
             raise SystemExit("%s: manifest version/target mismatch" % package)
         if LUNA_DEPENDENCY not in manifest["depends"]:
             raise SystemExit("%s: manifest dependency missing" % package)
+        if luna_requirement_text() not in manifest.get("description", ""):
+            raise SystemExit("%s: manifest description does not state %s" % (package, luna_requirement_text()))
         for relative, expected in manifest["files_sha256"].items():
             actual = sha256_bytes(archive.extractfile("files/" + relative).read())
             if actual != expected:
@@ -381,7 +392,12 @@ def build_target(target, base_dir, binary, version, out_dir, force, template, ex
             target.get("models_append", []),
         )
         patch_manifest(
-            manifest, target["target"], version, stage, extra_files.values()
+            manifest,
+            target["target"],
+            version,
+            stage,
+            extra_files.values(),
+            description=default_description(),
         )
         manifest_path.write_text(
             yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True)
@@ -417,6 +433,14 @@ def default_version():
     match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
     if not match:
         raise SystemExit("cannot read version from plugin.toml")
+    return match.group(1)
+
+
+def default_description():
+    text = (ROOT / "plugin.toml").read_text()
+    match = re.search(r'^description = "(.*)"$', text, re.MULTILINE)
+    if not match:
+        raise SystemExit("cannot read description from plugin.toml")
     return match.group(1)
 
 

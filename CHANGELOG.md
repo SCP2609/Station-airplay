@@ -12,6 +12,9 @@
   capabilities: on Luna 0.2.26+ the station applies the stock Mini 2 matrix and
   logical RGB, and the plugin stops double-correcting. Older Luna keeps the
   plugin-side fallback.
+- The package description now states the required Luna version
+  (`Требует Luna 0.2.26+.`). The YAM v2 builder takes it from `plugin.toml`
+  and refuses a manifest whose description omits it.
 - Add shared AirPlay clock visualization to clock-equipped Light 2 and Mini 3,
   and extend the Midi visualizer. Choose alternating wave/time, continuous
   wave, or native time, and a centered or bottom-up wave.
