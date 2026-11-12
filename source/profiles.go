@@ -320,7 +320,7 @@ func receiverControlConfig(p stationProfile, controls *controlsConfig, spectrum 
 	// Disabling metadata disables remote-control discovery even with D-Bus built.
 	// Keep its unused FIFO private and volatile; never request artwork/cache files.
 	config = strings.Replace(config, `metadata = { enabled = "no"; };`,
-		`metadata = { enabled = "yes"; include_cover_art = "no"; pipe_name = "/run/station-airplay/control-metadata"; cover_art_cache_directory = "/run/station-airplay/coverart"; };`, 1)
+		fmt.Sprintf(`metadata = { enabled = "yes"; include_cover_art = "no"; pipe_name = %q; cover_art_cache_directory = %q; };`, controlMetadataFIFO, coverArtDir), 1)
 	if withSpectrum {
 		// Artwork is requested only for the LED visualiser. Normalise the cache
 		// key first so the non-UI template does not end up with a duplicate.
@@ -552,6 +552,14 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 			return err
 		}
 		defer syscall.Close(spectrumFD)
+		// The receiver still publishes metadata and artwork here; drain its
+		// FIFO so a full buffer cannot block playback while the display
+		// renderer is not running.
+		if metaFD, err = ensureFIFO(controlMetadataFIFO); err != nil {
+			return err
+		}
+		defer syscall.Close(metaFD)
+		go drainFIFO(ctx, metaFD)
 		tap = newSpectrumTap(coverArtDir)
 		go tap.run(ctx, spectrumFD)
 	}
@@ -699,5 +707,20 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		return fmt.Errorf("shared controls stopped: %w", e)
 	case ex := <-exits:
 		return &childFailure{ex.name, ex.err}
+	}
+}
+
+// drainFIFO keeps a metadata pipe moving when no renderer consumes it. The
+// artwork itself is read from the receiver's cache, not from this stream.
+func drainFIFO(ctx context.Context, fd int) {
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			_ = readFD(fd, func([]byte) {})
+		}
 	}
 }
