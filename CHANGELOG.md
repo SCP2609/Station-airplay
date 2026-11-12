@@ -8,8 +8,10 @@
   7,3 МБ.
 - Убрана вторая libc: `libc.so.6`, `ld-linux-armhf.so.3`, `libm`, `libdl`,
   `libpthread`, `librt`, `libresolv` и `libgcc_s` больше не поставляются.
-  D-Bus и libplist пересобраны под символы glibc ≤2.28; супервизор передаёт
-  пакетным процессам `LD_LIBRARY_PATH`.
+  D-Bus, libplist, nqptp и avahi-namespace пересобраны под glibc ≤2.28.
+- Убраны `libmount`, `libblkid`, `libselinux` и `libpcre2`: приёмник не
+  перечисляет монтирования и не использует SELinux.
+- Shairport Sync обновлён до 5.6.3; патчи управления перебазированы.
 - Требуется Luna 0.2.26+.
 
 ## 2.1.4

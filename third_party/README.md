@@ -24,6 +24,11 @@ UPX 5.2.1 сжимает Go-супервизор и — только в архи
 
 `bin/dbus-daemon`, `bin/dbus-send` и `lib/libdbus-1.so.3` собраны из D-Bus 1.16.2 в Debian bullseye: символы glibc ≤2.28, без RUNPATH. Они используют пакетные Expat/GCC runtime и штатную libc прошивки. `build-runtime.sh` пересобирает комплект с GCC и sysroot.
 
+`shairport-sync-ap2` собирается из 5.6.3. На этапе линковки подключаются
+`support/libmount-stub.c` (монтирования не перечисляются) и отключённые
+контексты SELinux, поэтому `libmount`, `libblkid`, `libselinux` и `libpcre2`
+не входят в пакет.
+
 ## Приёмник с shared-управлением
 
 ARMhf receiver использует Shairport Sync 5.6.2 с патчами HomePod, Mbed TLS, shared-controls, DACP/IPv4 и preplay event channel из `support/`. `scripts/build-controls-runtime.sh` включает D-Bus-интерфейс и собирает его отдельно от базового receiver.
