@@ -23,7 +23,7 @@ launcher, а `scripts/package_yampkg.py` пересобирает пакеты �
 | `yandexmini_2` | полное | `spectrum: true`, `led_color_profile: "red"`, яркость `1.25` |
 | `plum`, `yandexplum` | полное | `spectrum: true`, яркость `1.25`, баланс белого `1.5/0.5/0.71` |
 | `yandexmidi`, `cucumber` | полное | добавлен `--controls-config`; включены `native_player` и `alice_button` |
-| `yandexmini` | только громкость | добавлен `--controls-config`; остальные флаги выключены |
+| `yandexmini` | полное, кроме кнопки Алисы | включены голос, ducking, индикация и native player; `spectrum: false` для шестизонного логотипа |
 | `yandexmicro` | голос, ducking, громкость, индикация; native player при наличии Quasar CLI | без изменений |
 | `mango` | голос, ducking, индикация | без изменений |
 | `orion` | только звук | `spectrum: false`: большой экран |

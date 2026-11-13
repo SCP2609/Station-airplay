@@ -18,7 +18,7 @@ import (
 // controlsDefaultsVersion is bumped whenever a release changes the seeded
 // defaults in a way existing installs should pick up. Missing in the file
 // means version 1 (2.1.4 and older).
-const controlsDefaultsVersion = 2
+const controlsDefaultsVersion = 3
 
 type defaultsRule struct {
 	version  int
@@ -34,6 +34,14 @@ var controlsDefaultsRules = []defaultsRule{
 	// LEDs were inert on this model before, so false is the shipped default.
 	{2, "yandexstation_2", "spectrum", false, true},
 	{2, "yandexstation_2", "leds", false, true},
+	// 2.1.5: the original Mini got the full shared-controls bridge and its
+	// six-zone logo. Before that release the package shipped these flags off.
+	// `alice_button` stays off: the host does not advertise that transport.
+	{3, "yandexmini", "voice", false, true},
+	{3, "yandexmini", "ducking", false, true},
+	{3, "yandexmini", "leds", false, true},
+	{3, "yandexmini", "native_player", false, true},
+	{3, "yandexmini", "spectrum", true, false},
 }
 
 // migrateControls stamps the file with the current defaults version and

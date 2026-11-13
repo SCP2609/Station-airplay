@@ -298,6 +298,24 @@ func TestLunaOwnerFailureDoesNotSelectMixer(t *testing.T) {
 	}
 }
 
+// Only the Mini profile declares directMixer: its firmware lists a Quasar
+// volume-manager port that never listens. Any other model that happens to have
+// a dead port must keep Luna as the single station-volume owner.
+func TestMixerFallbackNeedsTheProfileFlag(t *testing.T) {
+	old := volumeManagerListening
+	volumeManagerListening = func() bool { return false }
+	defer func() { volumeManagerListening = old }()
+	host, _, _ := lunaVolumeHost(t, 30)
+	defer host.Close()
+	v, err := controlsVolume(context.Background(), lunaVolumeAPI(t, host), yamDevice{Model: "yandexstation_2"}, controlsConfig{NativeVolume: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := v.(*lunaControlVolume); !ok {
+		t.Fatalf("Station 2 took the Mini's mixer path: %T", v)
+	}
+}
+
 func TestLunaOwnerMigratesLegacyPackageSettings(t *testing.T) {
 	for _, cfg := range []controlsConfig{
 		{NativeVolume: true, VolumeBackend: volumeBackendPackage},

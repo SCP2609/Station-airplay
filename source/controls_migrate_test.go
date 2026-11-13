@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,7 +52,7 @@ func TestMigrateControlsStation2TurnsOnRingFeatures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"defaults_version": 2`) {
+	if !strings.Contains(string(data), fmt.Sprintf(`"defaults_version": %d`, controlsDefaultsVersion)) {
 		t.Fatalf("file was not stamped: %s", data)
 	}
 }
@@ -86,6 +87,35 @@ func TestMigrateControlsOtherModelsKeepDefaults(t *testing.T) {
 	}
 	if out.DefaultsVersion != controlsDefaultsVersion {
 		t.Fatalf("defaults version = %d", out.DefaultsVersion)
+	}
+}
+
+func TestMigrateControlsMiniGetsFullControls(t *testing.T) {
+	path, cfg := writeControlsFile(t, `{
+  "voice": false,
+  "native_volume": true,
+  "ducking": false,
+  "leds": false,
+  "led_level": 200,
+  "native_player": false,
+  "alice_button": false,
+  "spectrum": true
+}`)
+	out, err := migrateControls(path, "yandexmini", cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Voice || !out.Ducking || !out.LEDs || !out.NativePlayer {
+		t.Fatalf("Mini controls stayed off: %+v", out)
+	}
+	if out.Spectrum == nil || *out.Spectrum {
+		t.Fatal("spectrum stayed on: the logo needs a solid artwork frame")
+	}
+	if out.AliceButton {
+		t.Fatal("Alice button was enabled without a host transport")
+	}
+	if !out.NativeVolume {
+		t.Fatal("native volume changed")
 	}
 }
 

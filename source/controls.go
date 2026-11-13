@@ -43,6 +43,10 @@ type controlsConfig struct {
 	ClockWaveSeconds   int          `json:"clock_wave_seconds,omitempty"`
 	ClockTimeSeconds   int          `json:"clock_time_seconds,omitempty"`
 	Group              *groupConfig `json:"group,omitempty"`
+	// directMixer and sessionIndication are board properties, not settings:
+	// they come from the station profile and are never read from the JSON.
+	directMixer       bool `json:"-"`
+	sessionIndication bool `json:"-"`
 }
 
 func (c *controlsConfig) useSpectrum() bool {
@@ -652,17 +656,23 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 	// the config so indication-only setups still subscribe to Alice's state.
 	ind, indication := c.station.(indicationStation)
 	_, leased := c.station.(ringReleaser)
-	// A framebuffer backend owns the vendor LED thread for the whole session.
-	// Do not wait for a fresh idle snapshot: the sender may attach before
-	// Alice emits another idle event. Speech and volume events release the
-	// ring immediately, so this wider gate cannot cover Alice's own UI.
+	// A framebuffer backend owns the vendor LED thread for the whole session:
+	// do not wait for a fresh idle snapshot, because the sender may attach
+	// before Alice emits another idle event. A profile with a solid artwork
+	// indication also repaints during the session; its first frame otherwise
+	// stays until Alice speaks again. Every other ring keeps Alice's window so
+	// her own overlays are not taken over for the whole track.
 	fresh := now.Before(c.speechFreshUntil) || leased
+	if c.cfg.sessionIndication && c.active {
+		fresh = true
+	}
 	ledAllowed := c.cfg.LEDs && c.rendererUpdate == nil && c.ledCount > 0 && c.aliceIdle && fresh && !c.ledSuspended && !now.Before(c.ledQuietUntil)
 	if leased && !ledAllowed {
 		c.releaseRing(ctx)
 		c.ledOwned, c.ledState = false, ""
 	}
 	if ledAllowed {
+
 		state := "playing"
 		if !s.Active || now.Before(c.pausedUntil) {
 			state = "paused"
@@ -708,6 +718,13 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 			for i := range colors {
 				colors[i] = fmt.Sprintf("#00%02x%02x", level, level/2)
 			}
+			// Solid indication follows the cover too; the teal frame above is
+			// only the fallback while the artwork is unknown.
+			if c.spectrum != nil {
+				if art := c.spectrum.solidFrame(c.ledCount, level); art != nil {
+					colors = art
+				}
+			}
 			c.ledMu.Lock()
 			err = c.station.Colors(ctx, colors)
 			c.ledMu.Unlock()
@@ -717,7 +734,14 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 			}
 			aliceButtonDebug("led: ring state=%s level=%d", state, level)
 			c.ledOwned = true
-			c.ledRefreshAt = now.Add(3 * time.Second)
+			// A solid artwork frame is cheap; repaint often so a new cover and
+			// its palette appear without a multi-second lag. Rings that only
+			// fill Alice's speech window keep the calm interval.
+			refresh := 3 * time.Second
+			if c.cfg.sessionIndication {
+				refresh = 500 * time.Millisecond
+			}
+			c.ledRefreshAt = now.Add(refresh)
 		}
 	}
 	return errors.Join(nativeErr, volumeErr)
@@ -754,7 +778,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 		return err
 	}
 	if c.nativeObserved && native != c.observedNative {
-		c.ledQuietUntil = now.Add(3 * time.Second)
+		c.ledQuietUntil = now.Add(c.volumeQuietWindow())
 	}
 	c.nativeObserved = true
 	c.observedNative = native
@@ -842,8 +866,18 @@ func (c *sharedController) applySenderVolume(ctx context.Context, s receiverStat
 	c.lastNative = native
 	c.lastDB = s.DB
 	c.pendingNative = -1
-	c.ledQuietUntil = now.Add(3 * time.Second)
+	c.ledQuietUntil = now.Add(c.volumeQuietWindow())
 	return nil
+}
+
+// volumeQuietWindow keeps Alice's volume overlay visible. The Mini's solid
+// indication follows the cover, so it waits only long enough not to repaint
+// over the overlay; a ring with a calm fill keeps the original three seconds.
+func (c *sharedController) volumeQuietWindow() time.Duration {
+	if c.cfg.sessionIndication {
+		return time.Second
+	}
+	return 3 * time.Second
 }
 
 // Stop must not restore Master, restart Alice, touch clocks, or paint over Alice.
@@ -871,15 +905,23 @@ func (c *sharedController) releaseRing(ctx context.Context) {
 }
 
 func supportedLEDCount(d yamDevice) int {
-	// Only documented YAM ring capabilities, never a guessed Station2 framebuffer.
-	if !feature(d, "led.ring.rgb") {
+	// Only documented YAM capabilities, never a guessed Station2 framebuffer.
+	// A station exposes either an RGB ring (led.ring.rgb/led.ring.N) or an RGB
+	// logo light (led.logo.rgb/led.logo.N); both answer the same /led API.
+	prefix := ""
+	switch {
+	case feature(d, "led.ring.rgb"):
+		prefix = "led.ring."
+	case feature(d, "led.logo.rgb"):
+		prefix = "led.logo."
+	default:
 		return 0
 	}
-	// The ring size is advertised per model (3, 4, 6, 12, 24, 36...). Read the
+	// The zone count is advertised per model (3, 4, 6, 12, 24, 36...). Read the
 	// number instead of keeping a list that silently disables new stations.
 	count := 0
 	for _, f := range d.Features {
-		value, ok := strings.CutPrefix(f, "led.ring.")
+		value, ok := strings.CutPrefix(f, prefix)
 		if !ok || value == "rgb" {
 			continue
 		}

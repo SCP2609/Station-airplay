@@ -33,8 +33,10 @@ const (
 
 	// Adopt a new cover quickly. The old two second window kept the previous
 	// track's colour on the ring after the artwork had already changed.
-	coverAdoptDelay   = 500 * time.Millisecond
-	coverScanInterval = 300 * time.Millisecond
+	coverAdoptDelay   = 200 * time.Millisecond
+	coverScanInterval = 100 * time.Millisecond
+	// solidMinValue keeps a dim artwork readable on a solid indication.
+	solidMinValue = .45
 
 	// Owner-tuned on 2026-11-11: +22% saturation and a slightly higher bar
 	// floor. Greys and cream still stay neutral.
@@ -81,6 +83,9 @@ type spectrumTap struct {
 	luma           float64
 	coverColor     [3]float64
 	haveCoverColor bool
+	// palette holds the cover's most populated colour clusters for a
+	// multi-zone indication; the dominant colour above stays the fallback.
+	palette [][3]float64
 }
 
 func newSpectrumTap(coverDir string) *spectrumTap {
@@ -103,8 +108,12 @@ func (t *spectrumTap) run(ctx context.Context, audioFD int) {
 		case <-ctx.Done():
 			return
 		case now := <-tick.C:
-			if err := readFD(audioFD, func(buf []byte) { t.feedAudio(buf, now) }); err != nil {
-				fmt.Fprintf(os.Stderr, "airplay spectrum: audio FIFO: %v\n", err)
+			// A solid-indication model has no analyser FIFO: the tap only
+			// follows the cover cache for the artwork colour.
+			if audioFD >= 0 {
+				if err := readFD(audioFD, func(buf []byte) { t.feedAudio(buf, now) }); err != nil {
+					fmt.Fprintf(os.Stderr, "airplay spectrum: audio FIFO: %v\n", err)
+				}
 			}
 			t.rotateAt(now)
 		}
@@ -261,7 +270,7 @@ func (t *spectrumTap) adoptCover(path, newest string, newestAt time.Time) {
 	if err != nil {
 		return
 	}
-	rgb, decoded := coverRGB(f, info.Size())
+	rgb, palette, decoded := coverPaletteRGB(f, info.Size(), 6)
 	if !decoded {
 		return
 	}
@@ -274,6 +283,7 @@ func (t *spectrumTap) adoptCover(path, newest string, newestAt time.Time) {
 	t.mu.Lock()
 	t.cover, t.pendingCover = path, ""
 	t.coverColor, t.haveCoverColor = rgb, true
+	t.palette = palette
 	t.hue, t.haveHue, t.mono, t.luma = hue, chromatic, !chromatic, value
 	t.mu.Unlock()
 	if chromatic {
@@ -310,6 +320,67 @@ func (t *spectrumTap) playing(now time.Time) bool {
 // frame renders n colours from the four real bands. With artwork the hue is
 // shared and slightly fanned out; without it the bars pulse neutral from black
 // to white instead of showing an unrelated rainbow.
+// solidFrame paints one artwork colour on every zone. It is the indication for
+// models that show a solid frame instead of the PCM spectrum, so a logo light
+// still follows the cover. It returns nil while no artwork is known, which lets
+// the caller keep its own fallback frame.
+func (t *spectrumTap) solidFrame(n int, level uint8) []string {
+	if n <= 0 {
+		return nil
+	}
+	t.mu.Lock()
+	rgb, haveColor := t.coverColor, t.haveCoverColor
+	palette := t.palette
+	gain, neutralBlack := t.gain, t.neutralBlack
+	t.mu.Unlock()
+	if !haveColor {
+		return nil
+	}
+	scale := float64(level) / 200
+	if scale <= 0 {
+		scale = 1
+	}
+	if scale > 1 {
+		scale = 1
+	}
+	frame := make([]string, n)
+	if len(palette) > 1 {
+		// Spread the cover's clusters over the zones so a logo or ring reads
+		// as the artwork instead of one flat tint.
+		for i := range frame {
+			frame[i] = solidHex(palette[i*len(palette)/n], gain, scale, neutralBlack)
+		}
+		return frame
+	}
+	color := solidHex(rgb, gain, scale, neutralBlack)
+	for i := range frame {
+		frame[i] = color
+	}
+	return frame
+}
+
+// solidHex converts one artwork colour to a frame entry. Match the spectrum
+// frame: a black cover stays dark instead of inventing a tint, except on the
+// model whose stock fallback is deliberately blue.
+func solidHex(rgb, gain [3]float64, scale float64, neutralBlack bool) string {
+	// A black cover stays off, or keeps the stock dark fallback on the model
+	// that has one; only a real artwork colour is lifted.
+	dark := rgb == [3]float64{}
+	if dark && !neutralBlack {
+		rgb = [3]float64{24.0 / 255, 32.0 / 255, 48.0 / 255}
+	}
+	// A dark cover still has to read as its hue on the LEDs: lift the value
+	// to the visibility floor, the way the artwork tint is meant to be seen.
+	if v := math.Max(rgb[0], math.Max(rgb[1], rgb[2])); !dark && v > 0 && v < solidMinValue {
+		k := solidMinValue / v
+		rgb = [3]float64{rgb[0] * k, rgb[1] * k, rgb[2] * k}
+	}
+	r := math.Min(1, math.Max(0, rgb[0]*gain[0]*scale))
+	g := math.Min(1, math.Max(0, rgb[1]*gain[1]*scale))
+	b := math.Min(1, math.Max(0, rgb[2]*gain[2]*scale))
+	return fmt.Sprintf("#%02X%02X%02X", int(r*255), int(g*255), int(b*255))
+}
+
 func (t *spectrumTap) frame(n int, level uint8) []string {
 	if n <= 0 {
 		return nil

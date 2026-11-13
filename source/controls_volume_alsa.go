@@ -53,6 +53,10 @@ func (v *alsaControlVolume) Backend() string { return "ALSA Master (Luna volume 
 func amixerEnv() []string {
 	return []string{
 		"PATH=/system/bin:/usr/bin:/bin:/sbin:/usr/sbin",
+		// The vendor amixer links against the Quasar libasound, and a child of
+		// the plugin does not inherit the loader path the plugin was started
+		// with.
+		"LD_LIBRARY_PATH=/system/vendor/quasar/libs",
 		"HOME=/tmp",
 		"LANG=C",
 		"LC_ALL=C",
@@ -150,6 +154,32 @@ func findAmixer() (string, error) {
 	return "", errors.New("amixer is not available on this station")
 }
 
+// mixerWriteVolume keeps Luna as the reader and the owner of the logical
+// level, but writes the mixer directly. Luna's own write first retries the
+// Quasar volume-manager port, and some firmwares ship volume_manager.port
+// without a listener, so every slider move waits about a second for that dead
+// port. The mixer is the same control Luna falls back to and reads back from.
+type mixerWriteVolume struct {
+	reader volumeControl
+	mixer  *alsaControlVolume
+}
+
+func (v *mixerWriteVolume) Backend() string {
+	return "ALSA Master writes, Luna /api/volume reads"
+}
+
+func (v *mixerWriteVolume) GetVolume(ctx context.Context) (float64, error) {
+	return v.reader.GetVolume(ctx)
+}
+
+func (v *mixerWriteVolume) SetVolume(ctx context.Context, pct int) (float64, error) {
+	return v.mixer.SetVolume(ctx, pct)
+}
+
+func (v *mixerWriteVolume) CheckWrite(ctx context.Context) error {
+	return v.reader.CheckWrite(ctx)
+}
+
 // newALSAControlVolume only proves the utility is present. The mixer control is
 // probed on every call so a softvol control that appears on the first PCM open
 // does not pin the slower Luna path for the whole boot.
@@ -196,7 +226,10 @@ func quasarVolumeManagerPort() (int, bool) {
 	return cfg.VolumeManager.Port, true
 }
 
-func volumeManagerListening() bool {
+// volumeManagerListening is a var so a test can pin the probe result.
+var volumeManagerListening = probeVolumeManager
+
+func probeVolumeManager() bool {
 	port, ok := quasarVolumeManagerPort()
 	if !ok {
 		return false
