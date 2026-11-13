@@ -86,6 +86,72 @@ type spectrumTap struct {
 	// palette holds the cover's most populated colour clusters for a
 	// multi-zone indication; the dominant colour above stays the fallback.
 	palette [][3]float64
+	// shownColor/shownPalette are what the ring currently displays. A newly
+	// adopted cover is cross-faded from them instead of swapping hues in one
+	// frame; coverGen tells easedArtwork when to start a new fade.
+	shownColor   [3]float64
+	shownPalette [][3]float64
+	shownValid   bool
+	coverGen     int
+	fadeGen      int
+	fadeStart    time.Time
+	fadeFrom     [3]float64
+	fadePalette  [][3]float64
+}
+
+// artworkFade is the length of the cover cross-fade. 300 ms keeps the change
+// visible without lagging behind a track skip.
+const artworkFade = 300 * time.Millisecond
+
+// easedArtwork returns the colour and palette the ring should show now. A new
+// cover is cross-faded from the previous one with smoothstep, so both the 10 Hz
+// spectrum loop and the 20 Hz display tick see the same transition. Callers
+// hold t.mu. The palette is copied because solidFrame renders it after
+// unlocking while the next tick keeps the eased state.
+func (t *spectrumTap) easedArtwork(now time.Time) ([3]float64, [][3]float64) {
+	if !t.haveCoverColor {
+		return t.coverColor, append([][3]float64(nil), t.palette...)
+	}
+	if t.fadeGen != t.coverGen {
+		t.fadeGen = t.coverGen
+		t.fadeStart = now
+		t.fadeFrom = t.shownColor
+		t.fadePalette = append([][3]float64(nil), t.shownPalette...)
+		if !t.shownValid {
+			// Nothing on the ring yet: the first cover appears at once.
+			t.fadeStart = now.Add(-artworkFade)
+		}
+	}
+	progress := 1.0
+	if !t.fadeStart.IsZero() {
+		progress = float64(now.Sub(t.fadeStart)) / float64(artworkFade)
+	}
+	if progress >= 1 {
+		t.shownColor = t.coverColor
+		t.shownPalette = append([][3]float64(nil), t.palette...)
+		t.shownValid = true
+		return t.shownColor, append([][3]float64(nil), t.shownPalette...)
+	}
+	if progress < 0 {
+		progress = 0
+	}
+	ease := progress * progress * (3 - 2*progress)
+	shown := t.fadeFrom
+	for i := range shown {
+		shown[i] += (t.coverColor[i] - shown[i]) * ease
+	}
+	shownPalette := make([][3]float64, len(t.palette))
+	for i := range shownPalette {
+		from := t.fadeFrom
+		if i < len(t.fadePalette) {
+			from = t.fadePalette[i]
+		}
+		for c := range from {
+			shownPalette[i][c] = from[c] + (t.palette[i][c]-from[c])*ease
+		}
+	}
+	t.shownColor, t.shownPalette, t.shownValid = shown, shownPalette, true
+	return shown, append([][3]float64(nil), shownPalette...)
 }
 
 func newSpectrumTap(coverDir string) *spectrumTap {
@@ -283,6 +349,7 @@ func (t *spectrumTap) adoptCover(path, newest string, newestAt time.Time) {
 	t.mu.Lock()
 	t.cover, t.pendingCover = path, ""
 	t.coverColor, t.haveCoverColor = rgb, true
+	t.coverGen++
 	t.palette = palette
 	t.hue, t.haveHue, t.mono, t.luma = hue, chromatic, !chromatic, value
 	t.mu.Unlock()
@@ -336,8 +403,8 @@ func (t *spectrumTap) solidFrame(n int, level uint8) []string {
 		return nil
 	}
 	t.mu.Lock()
-	rgb, haveColor := t.coverColor, t.haveCoverColor
-	palette := t.palette
+	rgb, palette := t.easedArtwork(time.Now())
+	haveColor := t.haveCoverColor
 	gain, neutralBlack := t.gain, t.neutralBlack
 	blackFloor := t.blackFloor
 	t.mu.Unlock()
@@ -410,7 +477,8 @@ func (t *spectrumTap) frame(n int, level uint8) []string {
 	t.mu.Lock()
 	history := t.state.history
 	hue, haveHue, mono, luma := t.hue, t.haveHue, t.mono, t.luma
-	rgb, haveColor := t.coverColor, t.haveCoverColor
+	rgb, _ := t.easedArtwork(time.Now())
+	haveColor := t.haveCoverColor
 	brightness := t.brightness
 	gain, neutralBlack := t.gain, t.neutralBlack
 	blackFloor, ceiling, satBoost := t.blackFloor, t.ceiling, t.satBoost
