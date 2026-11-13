@@ -765,7 +765,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 		return err
 	}
 	if c.nativeObserved && native != c.observedNative {
-		c.ledQuietUntil = now.Add(time.Second)
+		c.ledQuietUntil = now.Add(3 * time.Second)
 	}
 	c.nativeObserved = true
 	c.observedNative = native
@@ -853,9 +853,7 @@ func (c *sharedController) applySenderVolume(ctx context.Context, s receiverStat
 	c.lastNative = native
 	c.lastDB = s.DB
 	c.pendingNative = -1
-	// Keep Alice's volume overlay visible, but do not freeze the ring for the
-	// old three seconds: the cover colour follows the change much sooner.
-	c.ledQuietUntil = now.Add(time.Second)
+	c.ledQuietUntil = now.Add(3 * time.Second)
 	return nil
 }
 

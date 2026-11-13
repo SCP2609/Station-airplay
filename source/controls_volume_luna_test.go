@@ -298,35 +298,21 @@ func TestLunaOwnerFailureDoesNotSelectMixer(t *testing.T) {
 	}
 }
 
-// A configured but dead Quasar volume-manager port makes every Luna write wait
-// about a second, so any model writes the mixer directly and Luna stays the
-// reader. A live port keeps Luna as the only writer.
-func TestMixerFallbackOnlyForDeadVolumeManager(t *testing.T) {
+// A dead Quasar volume-manager port makes Luna's write slow, but the logical
+// level does not follow the ALSA Master on these hosts. Luna must stay the only
+// writer, otherwise the sender slider jumps back to the station's old value.
+func TestVolumeStaysOnLunaWhenManagerIsDead(t *testing.T) {
 	old := volumeManagerListening
 	defer func() { volumeManagerListening = old }()
+	volumeManagerListening = func() bool { return false }
 	host, _, _ := lunaVolumeHost(t, 30)
 	defer host.Close()
-	api := lunaVolumeAPI(t, host)
-
-	volumeManagerListening = func() bool { return true }
-	v, err := controlsVolume(context.Background(), api, yamDevice{Model: "yandexstation_2"}, controlsConfig{NativeVolume: true})
+	v, err := controlsVolume(context.Background(), lunaVolumeAPI(t, host), yamDevice{Model: "yandexplum"}, controlsConfig{NativeVolume: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := v.(*lunaControlVolume); !ok {
-		t.Fatalf("live volume manager selected %T", v)
-	}
-
-	if _, err := newALSAControlVolume(nil); err != nil {
-		t.Skip("amixer is not available in this environment")
-	}
-	volumeManagerListening = func() bool { return false }
-	v, err = controlsVolume(context.Background(), api, yamDevice{Model: "yandexstation_2"}, controlsConfig{NativeVolume: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := v.(*mixerWriteVolume); !ok {
-		t.Fatalf("dead volume manager selected %T", v)
+		t.Fatalf("dead volume manager selected %T, want Luna", v)
 	}
 }
 

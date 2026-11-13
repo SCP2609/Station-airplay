@@ -265,9 +265,7 @@ func runControlLoop(ctx context.Context, c *sharedController, api *yamAPI, cfg c
 			lastError = time.Now()
 		}
 	}
-	// 250 ms halves the delay before a sender volume change reaches the
-	// station; the loop does not wait for the (slower) Luna write itself.
-	tick := time.NewTicker(250 * time.Millisecond)
+	tick := time.NewTicker(500 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		select {
@@ -328,17 +326,11 @@ func controlsVolume(ctx context.Context, api *yamAPI, d yamDevice, cfg controlsC
 		if err != nil {
 			return nil, err
 		}
-		// A firmware that advertises volume_manager.port but never listens on
-		// it makes every Luna write wait about a second for the dead port. The
-		// mixer is the control Luna reads back from, so write it directly and
-		// keep Luna as the reader; otherwise the slider stays a second behind.
-		if d.Model != "" && !volumeManagerListening() {
-			if mixer, e := newALSAControlVolume(v); e == nil {
-				mixed := &mixerWriteVolume{reader: v, mixer: mixer}
-				fmt.Printf("station volume: Quasar volume manager is offline; %s\n", mixed.Backend())
-				return mixed, nil
-			}
-		}
+		// A dead volume-manager port makes Luna's write slow, but Luna still
+		// owns the logical level the station buttons, Alice and the sender
+		// slider read. Writing the ALSA Master directly does not update that
+		// level on these hosts, so the slider would jump back to the old value;
+		// keep Luna as the only writer.
 		fmt.Printf("station volume: the sender's slider sets the station volume via %s\n", v.Backend())
 		return v, nil
 	case volumeBackendPackage:
