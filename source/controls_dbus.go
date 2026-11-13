@@ -265,14 +265,9 @@ func runControlLoop(ctx context.Context, c *sharedController, api *yamAPI, cfg c
 			lastError = time.Now()
 		}
 	}
-	// The Mini writes the mixer directly, so a 250 ms loop halves the delay
-	// before a sender volume change reaches the station. Other boards keep
-	// the calmer poll: their Luna write is slower than the difference.
-	interval := 500 * time.Millisecond
-	if cfg.directMixer {
-		interval = 250 * time.Millisecond
-	}
-	tick := time.NewTicker(interval)
+	// 250 ms halves the delay before a sender volume change reaches the
+	// station; the loop does not wait for the (slower) Luna write itself.
+	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		select {
@@ -337,7 +332,7 @@ func controlsVolume(ctx context.Context, api *yamAPI, d yamDevice, cfg controlsC
 		// it makes every Luna write wait about a second for the dead port. The
 		// mixer is the control Luna reads back from, so write it directly and
 		// keep Luna as the reader; otherwise the slider stays a second behind.
-		if d.Model != "" && cfg.directMixer && !volumeManagerListening() {
+		if d.Model != "" && !volumeManagerListening() {
 			if mixer, e := newALSAControlVolume(v); e == nil {
 				mixed := &mixerWriteVolume{reader: v, mixer: mixer}
 				fmt.Printf("station volume: Quasar volume manager is offline; %s\n", mixed.Backend())

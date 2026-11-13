@@ -85,31 +85,23 @@ func TestSharedProfilesKeepProvenAudioContract(t *testing.T) {
 	}
 }
 
-// The short back-end buffer and the latency offset were measured on the
-// original Mini. The offset gives up multi-room sync with other AirPlay
-// receivers, so every other model keeps the stock timing until its own live
-// unit confirms the same numbers.
-func TestOnlyMiniKeepsShortBackendBuffer(t *testing.T) {
-	p, ok := profileFor("yandexmini")
-	if !ok || !p.lowLatency {
-		t.Fatal("original Mini lacks the low-latency profile")
-	}
-	conf := receiverConfig(p)
-	for _, s := range []string{
-		"audio_backend_buffer_desired_length_in_seconds = 0.10;",
-		"audio_backend_latency_offset_in_seconds = -1.7;",
-	} {
-		if !strings.Contains(conf, s) {
-			t.Fatalf("Mini lacks %q:\n%s", s, conf)
-		}
-	}
-	for _, model := range []string{"yandexmini_2", "yandexstation_2", "yandexmidi", "yandexplum"} {
+// The short back-end buffer and the latency offset were measured on the live
+// Mini and then rolled out to every shared profile. The offset gives up
+// multi-room sync with other AirPlay receivers on each of them.
+func TestSharedReceiverKeepsShortBackendBuffer(t *testing.T) {
+	for _, model := range []string{"yandexmini", "yandexmini_2", "yandexstation_2", "yandexmidi", "yandexplum", "yandexmicro"} {
 		p, ok := profileFor(model)
 		if !ok {
 			t.Fatal(model)
 		}
-		if conf := receiverConfig(p); strings.Contains(conf, "audio_backend_") {
-			t.Fatalf("%s received the Mini's unverified audio timing:\n%s", model, conf)
+		conf := receiverConfig(p)
+		for _, s := range []string{
+			"audio_backend_buffer_desired_length_in_seconds = 0.10;",
+			"audio_backend_latency_offset_in_seconds = -1.7;",
+		} {
+			if !strings.Contains(conf, s) {
+				t.Fatalf("%s lacks %q:\n%s", model, s, conf)
+			}
 		}
 	}
 }

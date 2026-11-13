@@ -43,10 +43,6 @@ type controlsConfig struct {
 	ClockWaveSeconds   int          `json:"clock_wave_seconds,omitempty"`
 	ClockTimeSeconds   int          `json:"clock_time_seconds,omitempty"`
 	Group              *groupConfig `json:"group,omitempty"`
-	// directMixer and sessionIndication are board properties, not settings:
-	// they come from the station profile and are never read from the JSON.
-	directMixer       bool `json:"-"`
-	sessionIndication bool `json:"-"`
 }
 
 func (c *controlsConfig) useSpectrum() bool {
@@ -658,14 +654,10 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 	_, leased := c.station.(ringReleaser)
 	// A framebuffer backend owns the vendor LED thread for the whole session:
 	// do not wait for a fresh idle snapshot, because the sender may attach
-	// before Alice emits another idle event. A profile with a solid artwork
-	// indication also repaints during the session; its first frame otherwise
-	// stays until Alice speaks again. Every other ring keeps Alice's window so
-	// her own overlays are not taken over for the whole track.
-	fresh := now.Before(c.speechFreshUntil) || leased
-	if c.cfg.sessionIndication && c.active {
-		fresh = true
-	}
+	// before Alice emits another idle event. A normal session repaints too,
+	// otherwise the first frame painted before the artwork arrived stays until
+	// Alice speaks again.
+	fresh := now.Before(c.speechFreshUntil) || c.active || leased
 	ledAllowed := c.cfg.LEDs && c.rendererUpdate == nil && c.ledCount > 0 && c.aliceIdle && fresh && !c.ledSuspended && !now.Before(c.ledQuietUntil)
 	if leased && !ledAllowed {
 		c.releaseRing(ctx)
@@ -735,13 +727,8 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 			aliceButtonDebug("led: ring state=%s level=%d", state, level)
 			c.ledOwned = true
 			// A solid artwork frame is cheap; repaint often so a new cover and
-			// its palette appear without a multi-second lag. Rings that only
-			// fill Alice's speech window keep the calm interval.
-			refresh := 3 * time.Second
-			if c.cfg.sessionIndication {
-				refresh = 500 * time.Millisecond
-			}
-			c.ledRefreshAt = now.Add(refresh)
+			// its palette appear without a multi-second lag.
+			c.ledRefreshAt = now.Add(500 * time.Millisecond)
 		}
 	}
 	return errors.Join(nativeErr, volumeErr)
@@ -778,7 +765,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 		return err
 	}
 	if c.nativeObserved && native != c.observedNative {
-		c.ledQuietUntil = now.Add(c.volumeQuietWindow())
+		c.ledQuietUntil = now.Add(time.Second)
 	}
 	c.nativeObserved = true
 	c.observedNative = native
@@ -866,18 +853,10 @@ func (c *sharedController) applySenderVolume(ctx context.Context, s receiverStat
 	c.lastNative = native
 	c.lastDB = s.DB
 	c.pendingNative = -1
-	c.ledQuietUntil = now.Add(c.volumeQuietWindow())
+	// Keep Alice's volume overlay visible, but do not freeze the ring for the
+	// old three seconds: the cover colour follows the change much sooner.
+	c.ledQuietUntil = now.Add(time.Second)
 	return nil
-}
-
-// volumeQuietWindow keeps Alice's volume overlay visible. The Mini's solid
-// indication follows the cover, so it waits only long enough not to repaint
-// over the overlay; a ring with a calm fill keeps the original three seconds.
-func (c *sharedController) volumeQuietWindow() time.Duration {
-	if c.cfg.sessionIndication {
-		return time.Second
-	}
-	return 3 * time.Second
 }
 
 // Stop must not restore Master, restart Alice, touch clocks, or paint over Alice.

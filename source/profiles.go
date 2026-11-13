@@ -111,10 +111,6 @@ func runWithControls(ctx context.Context, sharedAudio bool, controls *controlsCo
 	if !ok {
 		return fmt.Errorf("unsupported YAM model %q", d.Model)
 	}
-	if controls != nil {
-		controls.directMixer = p.directMixer
-		controls.sessionIndication = p.sessionIndication
-	}
 	// A model whose control profile is not qualified still has to play audio:
 	// Station 3 and Mini 3 Pro have no qualified shared-control transport, and
 	// refusing to start left them with a dead plugin.
@@ -224,20 +220,6 @@ func receiverConfig(p stationProfile) string {
 		device = "spk_tee"
 		meta = fmt.Sprintf("metadata = { enabled = \"yes\"; include_cover_art = \"no\"; pipe_name = %q; };", metadataFIFO)
 	}
-	// The low-latency pair was measured on the original Mini. Every other
-	// model keeps the stock timing: the offset gives up multi-room sync with
-	// other AirPlay receivers, and that trade was only accepted there.
-	latency := ""
-	if p.lowLatency {
-		latency = `
- // Stay well inside AirPlay's own buffering: the stock 0.2 s backend buffer
- // adds avoidable start-up and resume delay in front of the shared mixer.
- audio_backend_buffer_desired_length_in_seconds = 0.10;
- // Play 1.7 s ahead of the negotiated latency: about 2 s from the sender
- // minus the 0.1 s back-end buffer leaves the buffer that survived the live
- // unit. This model only; multi-room sync is sacrificed.
- audio_backend_latency_offset_in_seconds = -1.7;`
-	}
 	return fmt.Sprintf(`general = {
  name = %q;
  model = %q;
@@ -247,7 +229,15 @@ func receiverConfig(p stationProfile) string {
  interpolation = "basic";
  volume_range_db = 50;
  resync_threshold_in_seconds = 0.050;
- drift_tolerance_in_seconds = 0.002;%s
+ drift_tolerance_in_seconds = 0.002;
+ // Stay well inside AirPlay's own buffering: the stock 0.2 s backend buffer
+ // adds avoidable start-up and resume delay in front of the shared mixer.
+ audio_backend_buffer_desired_length_in_seconds = 0.10;
+ // Play 1.7 s ahead of the negotiated latency: about 2 s from the sender
+ // minus the 0.1 s back-end buffer leaves the buffer that survived the live
+ // Mini. The offset trades multi-room sync with other AirPlay receivers;
+ // lower it if the link underruns.
+ audio_backend_latency_offset_in_seconds = -1.7;
 };
 sessioncontrol = { allow_session_interruption = "yes"; session_timeout = 60; };
 alsa = {
@@ -258,7 +248,7 @@ alsa = {
  disable_standby_mode = "never";
 };
 %s
-`, p.name, p.airplayModel, latency, device, profileOutputRate(p), meta)
+`, p.name, p.airplayModel, device, profileOutputRate(p), meta)
 }
 
 // uiAsound is the receiver's private ~/.asoundrc. The file plugin feeds the

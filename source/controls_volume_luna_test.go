@@ -298,21 +298,35 @@ func TestLunaOwnerFailureDoesNotSelectMixer(t *testing.T) {
 	}
 }
 
-// Only the Mini profile declares directMixer: its firmware lists a Quasar
-// volume-manager port that never listens. Any other model that happens to have
-// a dead port must keep Luna as the single station-volume owner.
-func TestMixerFallbackNeedsTheProfileFlag(t *testing.T) {
+// A configured but dead Quasar volume-manager port makes every Luna write wait
+// about a second, so any model writes the mixer directly and Luna stays the
+// reader. A live port keeps Luna as the only writer.
+func TestMixerFallbackOnlyForDeadVolumeManager(t *testing.T) {
 	old := volumeManagerListening
-	volumeManagerListening = func() bool { return false }
 	defer func() { volumeManagerListening = old }()
 	host, _, _ := lunaVolumeHost(t, 30)
 	defer host.Close()
-	v, err := controlsVolume(context.Background(), lunaVolumeAPI(t, host), yamDevice{Model: "yandexstation_2"}, controlsConfig{NativeVolume: true})
+	api := lunaVolumeAPI(t, host)
+
+	volumeManagerListening = func() bool { return true }
+	v, err := controlsVolume(context.Background(), api, yamDevice{Model: "yandexstation_2"}, controlsConfig{NativeVolume: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := v.(*lunaControlVolume); !ok {
-		t.Fatalf("Station 2 took the Mini's mixer path: %T", v)
+		t.Fatalf("live volume manager selected %T", v)
+	}
+
+	if _, err := newALSAControlVolume(nil); err != nil {
+		t.Skip("amixer is not available in this environment")
+	}
+	volumeManagerListening = func() bool { return false }
+	v, err = controlsVolume(context.Background(), api, yamDevice{Model: "yandexstation_2"}, controlsConfig{NativeVolume: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := v.(*mixerWriteVolume); !ok {
+		t.Fatalf("dead volume manager selected %T", v)
 	}
 }
 
