@@ -756,7 +756,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 	v, err := c.station.GetVolume(ctx)
 	if err != nil {
 		c.volumeReady = false
-		c.ledQuietUntil = now.Add(3 * time.Second)
+		c.ledQuietUntil = now.Add(2 * time.Second)
 		return err
 	}
 	native, err := nativePercent(v)
@@ -765,7 +765,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 		return err
 	}
 	if c.nativeObserved && native != c.observedNative {
-		c.ledQuietUntil = now.Add(3 * time.Second)
+		c.ledQuietUntil = now.Add(2 * time.Second)
 	}
 	c.nativeObserved = true
 	c.observedNative = native
@@ -777,6 +777,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 		} else if !now.Before(c.remoteDeadline) {
 			c.remotePending = false
 			c.volumeReady = false
+			fmt.Fprintf(os.Stderr, "volume: sender ack timed out (db=%.2f last=%.2f native=%d)\n", s.DB, c.lastDB, native)
 			return errors.New("sender volume acknowledgement timed out")
 		} else {
 			c.remotePending = false
@@ -791,6 +792,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 		}
 		target := percentDB(native)
 		if math.Abs(s.DB-target) > 0.01 {
+			fmt.Fprintf(os.Stderr, "volume: initial publish native=%d%% -> sender db=%.2f\n", native, target)
 			if err = c.receiver.Volume(ctx, target); err != nil {
 				return err
 			}
@@ -812,6 +814,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 			if !s.Available {
 				return nil
 			}
+			fmt.Fprintf(os.Stderr, "volume: station native=%d%% -> sender db=%.2f\n", native, percentDB(native))
 			if err = c.receiver.Volume(ctx, percentDB(native)); err != nil {
 				return err
 			}
@@ -836,7 +839,9 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 }
 
 func (c *sharedController) applySenderVolume(ctx context.Context, s receiverState, now time.Time) error {
-	actual, err := c.station.SetVolume(ctx, dbPercentStep(s.DB, c.volumeStep))
+	target := dbPercentStep(s.DB, c.volumeStep)
+	fmt.Fprintf(os.Stderr, "volume: sender db=%.2f -> %d%% (last db=%.2f native=%d)\n", s.DB, target, c.lastDB, c.lastNative)
+	actual, err := c.station.SetVolume(ctx, target)
 	if err != nil {
 		c.volumeReady = false
 		return err
@@ -853,7 +858,8 @@ func (c *sharedController) applySenderVolume(ctx context.Context, s receiverStat
 	c.lastNative = native
 	c.lastDB = s.DB
 	c.pendingNative = -1
-	c.ledQuietUntil = now.Add(3 * time.Second)
+	c.ledQuietUntil = now.Add(2 * time.Second)
+	fmt.Fprintf(os.Stderr, "volume: applied readback=%d%% for sender db=%.2f\n", native, s.DB)
 	return nil
 }
 
