@@ -45,8 +45,8 @@
  
  int dacp_send_command(const char *command, char **body, size_t *bodysize);
  int send_simple_dacp_command(const char *command);
---- a/mdns_avahi.c
-+++ b/mdns_avahi.c
+--- a/mdns/mdns_avahi.c
++++ b/mdns/mdns_avahi.c
 @@ -40,6 +40,7 @@
  #include "dacp.h"
  #endif

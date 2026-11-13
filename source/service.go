@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	version             = "Station airplay 2.1.4"
+	version             = "Station airplay 2.1.5"
 	audioFIFO           = "/tmp/sps.fifo"
 	spectrumFIFO        = "/tmp/sps-spectrum.fifo"
 	metadataFIFO        = "/tmp/shairport-sync-ap2-metadata"
@@ -212,10 +212,11 @@ type stationProfile struct {
 	// packagedDBus: the firmware has no dbus-daemon/dbus-send; run the
 	// packaged ARMhf build for the private bus.
 	packagedDBus bool
-	// volumeOnly: a packaged D-Bus profile may run native_volume alone. The
-	// original Mini has no qualified speech/button transport, but Luna owns its
-	// station volume, so the sender's slider can work without the full bridge.
-	volumeOnly bool
+	// sharedControls: the packaged D-Bus profile shares the receiver control
+	// API with the other ARMhf profiles. controlsPreflight still disables every
+	// feature the host does not advertise, so an older Luna degrades instead of
+	// failing the whole service.
+	sharedControls bool
 }
 
 var (
@@ -246,8 +247,12 @@ var (
 		// on hw:0,0 at 48 kHz. Open softvol directly: this alsa-lib's plug loads
 		// a libsamplerate converter that only resolves on Quasar's library path
 		// (hw params fail with ENOENT). Station volume applies to AirPlay too.
-		// Firmware alsa-lib lives under quasar/libs. No D-Bus on the firmware.
-		{name: "Yandex Station Mini AirPlay", models: []string{"yandexmini", "YandexStationMini"}, pcm: "softvol", quasarCoexist: true, mdnsHostPrefix: "yandexmini", receiverABI: "armhf", airplayModel: "AudioAccessory5,1", alsaLib: "/system/vendor/quasar/libs/libasound.so.2", nvramHostID: true, packagedDBus: true, volumeOnly: true},
+		// Firmware alsa-lib lives under quasar/libs. No D-Bus on the firmware, so
+		// the packaged daemon runs behind the packaged loader. On Luna 0.2.26
+		// /media advertises speech, commands, native player and six RGB logo
+		// LEDs, so the control bridge is qualified; the Alice-button transport is
+		// not advertised and stays off.
+		{name: "Yandex Station Mini AirPlay", models: []string{"yandexmini", "YandexStationMini"}, pcm: "softvol", quasarCoexist: true, mdnsHostPrefix: "yandexmini", receiverABI: "armhf", airplayModel: "AudioAccessory5,1", alsaLib: "/system/vendor/quasar/libs/libasound.so.2", nvramHostID: true, packagedDBus: true, sharedControls: true},
 	}
 	// hw is the detected profile; verifyYAM sets it before anything renders.
 	hw = plumProfile
@@ -365,14 +370,26 @@ type exitInfo struct {
 	err  error
 }
 
+// runtimeEnv gives a child the package libraries while the firmware loader and
+// libc stay authoritative. preload replaces the bundled ALSA where the shared
+// mixer needs the firmware ABI.
+func runtimeEnv(env []string, libs, preload string) []string {
+	out := make([]string, 0, len(env)+2)
+	for _, s := range env {
+		if strings.HasPrefix(s, "LD_LIBRARY_PATH=") || strings.HasPrefix(s, "LD_PRELOAD=") {
+			continue
+		}
+		out = append(out, s)
+	}
+	out = append(out, "LD_LIBRARY_PATH="+libs)
+	if preload != "" {
+		out = append(out, "LD_PRELOAD="+preload)
+	}
+	return out
+}
+
 func startChild(ctx context.Context, bin string, args []string, env []string, output ...io.Writer) (*child, error) {
 	program := filepath.Base(bin)
-	// One ARMhf runtime also serves the existing Light/Midi engine and Avahi.
-	if program == "shairport-sync-ap2" || program == "avahi-daemon" || program == "nqptp" {
-		root := filepath.Dir(filepath.Dir(bin))
-		args = append([]string{"--library-path", filepath.Join(root, "lib"), bin}, args...)
-		bin = filepath.Join(root, "lib/ld-linux-armhf.so.3")
-	}
 	cmd := exec.Command(bin, args...)
 	cmd.Env = env
 	cmd.Stdout = os.Stdout
@@ -884,7 +901,7 @@ func main() {
 	if controls == nil && *controlsPath != "" {
 		fmt.Fprintln(os.Stderr, "controls configuration not found, shared controls disabled:", *controlsPath)
 	}
-	if e := runWithControls(ctx, *sharedAudio, controls); e != nil {
+	if e := runWithControls(ctx, *sharedAudio, controls, *controlsPath); e != nil {
 		fmt.Fprintln(os.Stderr, "station-airplay:", e)
 		os.Exit(1)
 	}

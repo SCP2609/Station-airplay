@@ -298,6 +298,24 @@ func TestLunaOwnerFailureDoesNotSelectMixer(t *testing.T) {
 	}
 }
 
+// A dead Quasar volume-manager port makes Luna's write slow, but the logical
+// level does not follow the ALSA Master on these hosts. Luna must stay the only
+// writer, otherwise the sender slider jumps back to the station's old value.
+func TestVolumeStaysOnLunaWhenManagerIsDead(t *testing.T) {
+	old := volumeManagerListening
+	defer func() { volumeManagerListening = old }()
+	volumeManagerListening = func() bool { return false }
+	host, _, _ := lunaVolumeHost(t, 30)
+	defer host.Close()
+	v, err := controlsVolume(context.Background(), lunaVolumeAPI(t, host), yamDevice{Model: "yandexplum"}, controlsConfig{NativeVolume: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := v.(*lunaControlVolume); !ok {
+		t.Fatalf("dead volume manager selected %T, want Luna", v)
+	}
+}
+
 func TestLunaOwnerMigratesLegacyPackageSettings(t *testing.T) {
 	for _, cfg := range []controlsConfig{
 		{NativeVolume: true, VolumeBackend: volumeBackendPackage},

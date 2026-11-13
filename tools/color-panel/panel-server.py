@@ -2,17 +2,29 @@
 """Same-origin bridge for the spectrum tuning panel.
 
 GET  /*                static panel files from this directory
+GET  /api/targets      targets.json without serials, tokens or paths
 GET  /api/last-values  last frame/params sent by the panel
-POST /api/preview      {"device":"mini2"|"lite2","colors":[six or three]}
-POST /api/preview/off  {"device":"mini2"|"lite2"}
+POST /api/preview      {"device":"mini2","colors":[...]}
+POST /api/preview/off  {"device":"mini2"}
 
-The device token never leaves this process. Mini 2 gets the stock red
-calibration matrix and the supervisor's R/B swap; Lite 2 is plain logical RGB.
+Two transports are supported per target:
+
+* ``api``  (default) — sends one frame to Luna's runtime LED API. The device
+  token never leaves this process; Mini 2 gets the stock red calibration
+  matrix and the supervisor's R/B swap, Lite 2 is plain logical RGB.
+* ``file`` — for Station 2, whose 89-pixel ring is a framebuffer owned by the
+  AirPlay plugin. The frame is written as JSON over ADB to the path the plugin
+  watches; the plugin holds the ring until the file is removed.
+
+Run it on a trusted machine only: it shells out to adb and can write to the
+speakers it is configured for.
 """
 import datetime
 import json
+import os
 import re
 import subprocess
+import tempfile
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -34,16 +46,32 @@ def load_targets():
     for name, target in targets.items():
         if not isinstance(target, dict):
             raise SystemExit("targets.json: %s must be an object" % name)
-        for key in ("serial", "api"):
-            if not isinstance(target.get(key), str) or not target[key]:
-                raise SystemExit("targets.json: %s.%s required" % (name, key))
+        if not isinstance(target.get("serial"), str) or not target["serial"]:
+            raise SystemExit("targets.json: %s.serial required" % name)
         if not isinstance(target.get("leds"), int) or target["leds"] <= 0:
             raise SystemExit("targets.json: %s.leds must be positive" % name)
+        transport = target.get("transport", "api")
+        if transport not in ("api", "file"):
+            raise SystemExit("targets.json: %s.transport must be api or file" % name)
+        target["transport"] = transport
+        if transport == "file":
+            if not isinstance(target.get("path"), str) or not target["path"]:
+                raise SystemExit("targets.json: %s.path required for transport=file" % name)
+        else:
+            if not isinstance(target.get("api"), str) or not target["api"]:
+                raise SystemExit("targets.json: %s.api required for transport=api" % name)
         if target.get("matrix") is not None and not isinstance(target["matrix"], str):
             raise SystemExit("targets.json: %s.matrix must be a profile name or null" % name)
+        for key in ("black_floor", "saturation"):
+            if key in target:
+                try:
+                    target[key] = float(target[key])
+                except (TypeError, ValueError):
+                    raise SystemExit("targets.json: %s.%s must be a number" % (name, key))
         target.setdefault("label", name)
         target["swap"] = bool(target.get("swap"))
         target["neutral_black"] = bool(target.get("neutral_black"))
+        target["neutral_gain"] = bool(target.get("neutral_gain"))
     return targets
 
 
@@ -145,6 +173,36 @@ def api_post(target, path, payload, token):
         return response.status, response.read(200).decode(errors="replace")
 
 
+def file_preview(target, colors):
+    """Push one frame to a plugin-owned framebuffer target over ADB."""
+    payload = json.dumps({"colors": colors}, ensure_ascii=False) + "\n"
+    tmp = tempfile.NamedTemporaryFile(
+        "w", suffix=".json", delete=False, encoding="utf-8"
+    )
+    try:
+        tmp.write(payload)
+        tmp.close()
+        p = subprocess.run(
+            ["adb", "-s", target["serial"], "push", tmp.name, target["path"]],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        if p.returncode != 0:
+            raise RuntimeError((p.stdout + p.stderr).strip() or "adb push failed")
+    finally:
+        try:
+            Path(tmp.name).unlink()
+        except OSError:
+            pass
+
+
+def file_off(target):
+    rc, out = adb_shell(target["serial"], "rm -f " + target["path"], timeout=12)
+    if rc != 0:
+        raise RuntimeError(out.strip() or "adb rm failed")
+
+
 def alsa_playing(serial):
     rc, out = adb_shell(
         serial,
@@ -161,6 +219,23 @@ def target_from(data):
     if name not in TARGETS:
         raise ValueError("нет цели %s в targets.json" % name)
     return name, TARGETS[name]
+
+
+def save_values(name, colors, sent, params):
+    if not isinstance(params, dict):
+        return False
+    record = {
+        "at": datetime.datetime.now().isoformat(timespec="seconds"),
+        "device": name,
+        "params": params,
+        "colors": colors,
+        "sent": sent,
+    }
+    try:
+        VALUES.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
+        return True
+    except Exception:
+        return False
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -186,6 +261,10 @@ class Handler(SimpleHTTPRequestHandler):
                     "label": target.get("label", name),
                     "leds": target["leds"],
                     "neutral_black": bool(target.get("neutral_black")),
+                    "neutral_gain": bool(target.get("neutral_gain")),
+                    "black_floor": float(target.get("black_floor") or 0),
+                    "saturation": float(target.get("saturation") or 1),
+                    "hold": target.get("transport") == "file",
                     "matrix": target.get("matrix"),
                 }
                 for name, target in TARGETS.items()
@@ -200,6 +279,14 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(404, {"ok": False, "error": "значений ещё нет"})
         return super().do_GET()
 
+    def _check_preview(self, data, target):
+        colors = data.get("colors")
+        if not isinstance(colors, list) or len(colors) != target["leds"]:
+            return None, "нужно ровно %d цветов" % target["leds"]
+        if any(not isinstance(c, str) or not COLOR.match(c) for c in colors):
+            return None, "цвет должен быть #RRGGBB"
+        return colors, None
+
     def do_POST(self):
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -208,6 +295,10 @@ class Handler(SimpleHTTPRequestHandler):
             raw = self.rfile.read(length) if length else b"{}"
             data = json.loads(raw.decode() or "{}")
             name, target = target_from(data)
+
+            if target["transport"] == "file":
+                return self._file_request(data, name, target)
+
             token = device_token(target["serial"])
 
             if self.path == "/api/preview/off":
@@ -217,30 +308,13 @@ class Handler(SimpleHTTPRequestHandler):
             if self.path != "/api/preview":
                 return self._json(404, {"ok": False, "error": "неизвестный путь"})
 
-            colors = data.get("colors")
-            if not isinstance(colors, list) or len(colors) != target["leds"]:
-                return self._json(
-                    400,
-                    {"ok": False, "error": "нужно ровно %d цветов" % target["leds"]},
-                )
-            if any(not isinstance(c, str) or not COLOR.match(c) for c in colors):
-                return self._json(400, {"ok": False, "error": "цвет должен быть #RRGGBB"})
+            colors, error = self._check_preview(data, target)
+            if error:
+                return self._json(400, {"ok": False, "error": error})
 
             matrix = device_matrix(target["serial"], target.get("matrix"))
             sent = [pack(c, target, matrix) for c in colors]
-            params = data.get("params")
-            if isinstance(params, dict):
-                record = {
-                    "at": datetime.datetime.now().isoformat(timespec="seconds"),
-                    "device": name,
-                    "params": params,
-                    "colors": colors,
-                    "sent": sent,
-                }
-                try:
-                    VALUES.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n")
-                except Exception:
-                    pass
+            saved = save_values(name, colors, sent, data.get("params"))
             api_post(target, "/led", {"colors": sent}, token)
             return self._json(
                 200,
@@ -249,16 +323,44 @@ class Handler(SimpleHTTPRequestHandler):
                     "device": name,
                     "sent": sent,
                     "playing": alsa_playing(target["serial"]),
-                    "params_saved": isinstance(params, dict),
+                    "params_saved": saved,
                 },
             )
         except Exception as exc:
             self._json(502, {"ok": False, "error": str(exc)})
 
+    def _file_request(self, data, name, target):
+        if self.path == "/api/preview/off":
+            file_off(target)
+            return self._json(200, {"ok": True, "device": name, "off": True})
+
+        if self.path != "/api/preview":
+            return self._json(404, {"ok": False, "error": "неизвестный путь"})
+
+        colors, error = self._check_preview(data, target)
+        if error:
+            return self._json(400, {"ok": False, "error": error})
+
+        saved = save_values(name, colors, colors, data.get("params"))
+        file_preview(target, colors)
+        return self._json(
+            200,
+            {
+                "ok": True,
+                "device": name,
+                "sent": colors,
+                "playing": alsa_playing(target["serial"]),
+                "params_saved": saved,
+                "preview": True,
+            },
+        )
+
 
 def main():
-    server = ThreadingHTTPServer(("192.168.0.83", 8799), Handler)
-    print("panel bridge on http://192.168.0.83:8799", flush=True)
+    host = os.environ.get("PANEL_HOST", "0.0.0.0")
+    port = int(os.environ.get("PANEL_PORT", "8799"))
+    server = ThreadingHTTPServer((host, port), Handler)
+    print("panel bridge on http://%s:%d" % (host, port), flush=True)
     server.serve_forever()
 
 

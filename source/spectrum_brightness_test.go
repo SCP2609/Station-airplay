@@ -55,3 +55,71 @@ func TestSpectrumWhiteBalanceAndNeutralBlack(t *testing.T) {
 		t.Fatal("Mini 2 black fallback was removed")
 	}
 }
+
+func TestSpectrumComfortOnlyForStation2(t *testing.T) {
+	floor, ceiling, saturation := spectrumComfort(yamDevice{Model: "yandexstation_2"})
+	if floor != 0.07 || ceiling != 1 || saturation != 1.35 {
+		t.Fatalf("Station 2 comfort: %v/%v/%v", floor, ceiling, saturation)
+	}
+	for _, model := range []string{"yandexmini_2", "yandexplum", "plum", "yandexmidi"} {
+		floor, ceiling, saturation := spectrumComfort(yamDevice{Model: model})
+		if floor != 0 || ceiling != 1 || saturation != 1 {
+			t.Fatalf("%s comfort: %v/%v/%v", model, floor, ceiling, saturation)
+		}
+	}
+}
+
+func TestSpectrumStation2BlackGlowAndCeiling(t *testing.T) {
+	tap := newSpectrumTap(t.TempDir())
+	tap.haveCoverColor = true
+	tap.coverColor = [3]float64{}
+	tap.neutralBlack = true
+	tap.blackFloor = 0.10
+	tap.state.history = [4]float64{}
+	got := tap.frame(1, 200)[0]
+	r, g, b := parseHex(t, got)
+	if got == "#000000" || r+g+b == 0 {
+		t.Fatal("black cover stayed dark on Station 2")
+	}
+	if !(b > r) {
+		t.Fatalf("black glow is not cool: %s", got)
+	}
+
+	tap.coverColor = [3]float64{1, 1, 1}
+	tap.ceiling = 1
+	tap.state.history = [4]float64{1, 1, 1, 1}
+	r, g, b = parseHex(t, tap.frame(1, 200)[0])
+	if r < 230 || g < 230 || b < 230 {
+		t.Fatalf("white cover is too dim: %d/%d/%d", r, g, b)
+	}
+}
+
+func TestSpectrumStation2SaturationKeepsNeutrals(t *testing.T) {
+	tap := newSpectrumTap(t.TempDir())
+	tap.haveCoverColor = true
+	tap.state.history = [4]float64{1, 1, 1, 1}
+	tap.coverColor = [3]float64{0x93 / 255.0, 0x79 / 255.0, 0x40 / 255.0}
+	r0, g0, b0 := parseHex(t, tap.frame(1, 200)[0])
+	tap.satBoost = 1.35
+	r1, g1, b1 := parseHex(t, tap.frame(1, 200)[0])
+	spread := func(a, b, c int) int {
+		m, n := a, a
+		for _, v := range []int{b, c} {
+			if v > m {
+				m = v
+			}
+			if v < n {
+				n = v
+			}
+		}
+		return m - n
+	}
+	if spread(r1, g1, b1) <= spread(r0, g0, b0) {
+		t.Fatalf("saturation did not grow: %d/%d/%d -> %d/%d/%d", r0, g0, b0, r1, g1, b1)
+	}
+	tap.coverColor = [3]float64{1, 1, 1}
+	r2, g2, b2 := parseHex(t, tap.frame(1, 200)[0])
+	if r2 != g2 || g2 != b2 {
+		t.Fatalf("white was tinted: %d/%d/%d", r2, g2, b2)
+	}
+}

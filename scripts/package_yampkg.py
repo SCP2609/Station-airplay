@@ -21,9 +21,15 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from runtime_slim import RUNTIME_BINARIES, slim_file, upx_version  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_REL = Path("files/share/luna/plugins/airplay.airplay-luna")
 MANIFEST = "MANIFEST.yaml"
+# Distribution archives use a high zstd level: the payload is mostly ELF and
+# HTML/TOML, and decompression stays a single standard zstd stream.
+PACK_ZSTD = "zstd -19 -T0 --zstd=wlog=20"
 CONFIG_KEYS = (
     "voice",
     "native_volume",
@@ -54,6 +60,33 @@ NEW_PERMISSIONS = (
 )
 OLD_PERMISSIONS = 'permissions = ["exec", "clock", "led", "ipc.speech", "commands"]'
 LUNA_DEPENDENCY = "yam/luna >=0.2.26"
+# The public base release still ships its own loader, libc and glibc runtime
+# libraries. The 2.1.5 runtime is built for the firmware glibc, so the package
+# no longer needs a second libc; the supervisor points children at lib/.
+PRUNE_RUNTIME = (
+    "lib/ld-linux-armhf.so.3",
+    "lib/libasound.so.2",
+    "lib/libmount.so.1",
+    "lib/libblkid.so.1",
+    "lib/libselinux.so.1",
+    "lib/libpcre2-8.so.0",
+    "lib/libc.so.6",
+    "lib/libm.so.6",
+    "lib/libdl.so.2",
+    "lib/libpthread.so.0",
+    "lib/librt.so.1",
+    "lib/libresolv.so.2",
+    "lib/libgcc_s.so.1",
+)
+REPLACE_RUNTIME = (
+    "bin/shairport-sync-ap2",
+    "bin/dbus-daemon",
+    "bin/dbus-send",
+    "bin/nqptp",
+    "bin/avahi-namespace",
+    "lib/libdbus-1.so.3",
+    "lib/libplist-2.0.so.3",
+)
 
 
 def sha256_bytes(data):
@@ -243,6 +276,18 @@ def patch_plugin(path, base_version, version, models_append=()):
     Path(path).write_text(text)
 
 
+def strip_voice_commands(path):
+    """Models with voice disabled do not need the 214 KB phrase declaration."""
+    path = Path(path)
+    text = path.read_text()
+    text, count = re.subn(r"\n\[commands\]\nphrases = \[.*?\]\n", "\n", text, flags=re.S)
+    if count != 1:
+        raise SystemExit("%s: expected one [commands].phrases block" % path)
+    if '"commands", ' not in text:
+        raise SystemExit("%s: commands permission missing" % path)
+    path.write_text(text.replace('"commands", ', "", 1))
+
+
 def extra_file_relative(destination):
     return str(PLUGIN_REL / destination)[len("files/") :]
 
@@ -315,6 +360,11 @@ def verify_output(package, target, binary, version, launcher):
         plugin = archive.extractfile(str(PLUGIN_REL / "plugin.toml")).read().decode()
         if 'version = "%s"' % version not in plugin:
             raise SystemExit("%s: plugin version mismatch" % package)
+        if not target["config"]["voice"]:
+            if "\n[commands]\n" in plugin or '"commands"' in plugin:
+                raise SystemExit("%s: voice-disabled package still declares commands" % package)
+        elif "\n[commands]\nphrases = [" not in plugin:
+            raise SystemExit("%s: voice package lacks phrases" % package)
         for model in target.get("models_append", []):
             if '"%s"' % model not in plugin:
                 raise SystemExit("%s: compatibility model missing: %s" % (package, model))
@@ -330,6 +380,50 @@ def verify_output(package, target, binary, version, launcher):
                 raise SystemExit("%s: extra file missing: %s" % (package, destination))
 
 
+_SLIM_CACHE = {}
+
+
+def runtime_key(relative):
+    return str(PLUGIN_REL / relative)[len("files/"):]
+
+
+def reconcile_runtime(plugin, manifest):
+    """Use the rebuilt glibc-2.28 D-Bus and drop the redundant loader/libc."""
+    for relative in REPLACE_RUNTIME:
+        source = ROOT / relative
+        if not source.is_file():
+            raise SystemExit("missing rebuilt runtime file: %s" % source)
+        destination = plugin / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+        os.chmod(destination, 0o755 if relative.startswith("bin/") else 0o644)
+    for relative in PRUNE_RUNTIME:
+        path = plugin / relative
+        if path.exists():
+            path.unlink()
+        manifest["files_sha256"].pop(runtime_key(relative), None)
+
+
+def slim_runtime(plugin, executable="upx"):
+    """Pack the receiver and daemons in this staged package; cache by input hash."""
+    records = []
+    for name in RUNTIME_BINARIES:
+        path = plugin / "bin" / name
+        if not path.is_file():
+            continue
+        key = (sha256_file(path), executable)
+        if key in _SLIM_CACHE:
+            packed, record = _SLIM_CACHE[key]
+            path.write_bytes(packed)
+            path.chmod(0o755)
+            records.append(dict(record))
+        else:
+            record = slim_file(path, executable)
+            _SLIM_CACHE[key] = (path.read_bytes(), record)
+            records.append(record)
+    return records
+
+
 def find_base(base_dir, name):
     exact = Path(base_dir) / ("%s.yampkg" % name)
     if exact.is_file():
@@ -342,7 +436,10 @@ def find_base(base_dir, name):
     return matches[0]
 
 
-def build_target(target, base_dir, binary, version, out_dir, force, template, extra_dir):
+def build_target(
+    target, base_dir, binary, version, out_dir, force, template, extra_dir,
+    slim=False, upx="upx",
+):
     base_name = target.get("base_target", target["target"])
     base = find_base(base_dir, base_name)
     stage = tempfile.mkdtemp(prefix="yampkg-%s-" % target["target"])
@@ -360,6 +457,10 @@ def build_target(target, base_dir, binary, version, out_dir, force, template, ex
 
         plugin = Path(stage) / PLUGIN_REL
         (plugin / "bin/station-airplay").write_bytes(binary)
+        packed = []
+        if slim:
+            reconcile_runtime(plugin, manifest)
+            packed = slim_runtime(plugin, upx)
         postinstall_src = ROOT / "release/yampkg/airplay-postinstall.sh"
         if postinstall_src.is_file():
             postinstall_dst = Path(stage) / "files/bin/airplay-postinstall"
@@ -391,6 +492,8 @@ def build_target(target, base_dir, binary, version, out_dir, force, template, ex
             version,
             target.get("models_append", []),
         )
+        if not target["config"]["voice"]:
+            strip_voice_commands(plugin / "plugin.toml")
         patch_manifest(
             manifest,
             target["target"],
@@ -408,7 +511,7 @@ def build_target(target, base_dir, binary, version, out_dir, force, template, ex
         if out.exists() and not force:
             raise SystemExit("%s exists; pass --force to replace it" % out)
         subprocess.run(
-            ["tar", "--zstd", "-cf", str(out), MANIFEST, "files"],
+            ["tar", "-I", PACK_ZSTD, "-cf", str(out), MANIFEST, "files"],
             cwd=stage,
             check=True,
         )
@@ -423,6 +526,7 @@ def build_target(target, base_dir, binary, version, out_dir, force, template, ex
             "size": out.stat().st_size,
             "base_sha256": sha256_file(base),
             "binary_sha256": sha256_bytes(binary),
+            "slim_runtime": packed,
         }
     finally:
         shutil.rmtree(stage)
@@ -462,6 +566,12 @@ def main(argv=None):
     )
     parser.add_argument("--targets", help="comma-separated subset of targets")
     parser.add_argument("--force", action="store_true", help="replace existing output")
+    parser.add_argument(
+        "--slim-runtime",
+        action="store_true",
+        help="pack the receiver and private daemons with UPX",
+    )
+    parser.add_argument("--upx", default="upx", help="UPX executable (default: upx)")
     args = parser.parse_args(argv)
 
     matrix = load_matrix(args.matrix)
@@ -495,6 +605,13 @@ def main(argv=None):
     version = args.version or default_version()
     if not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z._+-]*", version):
         parser.error("--version contains unsupported characters")
+    upx = None
+    if args.slim_runtime:
+        try:
+            upx = upx_version(args.upx)
+        except FileNotFoundError:
+            parser.error("--slim-runtime needs %s on PATH" % args.upx)
+        print("UPX: %s" % upx)
     out_dir = Path(args.out)
     records = []
     for target in targets:
@@ -507,6 +624,8 @@ def main(argv=None):
             args.force,
             template,
             args.extra_dir,
+            slim=bool(upx),
+            upx=args.upx,
         )
         records.append(record)
         print(
@@ -519,6 +638,7 @@ def main(argv=None):
             {
                 "version": version,
                 "binary_sha256": sha256_bytes(binary),
+                "upx": upx,
                 "packages": records,
             },
             indent=2,

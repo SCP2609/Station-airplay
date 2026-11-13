@@ -43,12 +43,12 @@ func TestSpectrumConfigBounds(t *testing.T) {
 
 func TestSpectrumExcludesOnlyBigScreens(t *testing.T) {
 	ring := []string{"led.ring.rgb", "led.ring.6"}
-	for _, model := range []string{"yandexmini_2", "yandexplum", "plum", "yandexmidi", "bergamot", "mango", "yandexmicro"} {
+	for _, model := range []string{"yandexmini_2", "yandexplum", "plum", "yandexmidi", "bergamot", "mango", "yandexmicro", "yandexstation_2"} {
 		if !spectrumSupported(yamDevice{Model: model, Features: ring}) {
 			t.Fatalf("%s should support the spectrum", model)
 		}
 	}
-	for _, model := range []string{"yandexstation_2", "yandexstation_3", "orion"} {
+	for _, model := range []string{"yandexstation_3", "orion"} {
 		if spectrumSupported(yamDevice{Model: model, Features: ring}) {
 			t.Fatalf("%s must stay on native indication", model)
 		}
@@ -95,6 +95,16 @@ func TestSpectrumReceiverConfigRequestsArtworkAndTee(t *testing.T) {
 	}
 	if strings.Count(conf, "cover_art_cache_directory") != 1 {
 		t.Fatalf("spectrum config duplicated the cache key:\n%s", conf)
+	}
+	// Solid indication also follows the cover, but it must not reroute audio
+	// through the analyser tee.
+	off := false
+	solid := receiverControlConfig(mini2Profile, &controlsConfig{LEDs: true, Spectrum: &off}, true)
+	if !strings.Contains(solid, `include_cover_art = "yes"`) || !strings.Contains(solid, coverArtDir) {
+		t.Fatalf("solid artwork config lacks cover art:\n%s", solid)
+	}
+	if !strings.Contains(solid, `output_device = "default"`) || strings.Contains(solid, "spk_tee") {
+		t.Fatalf("solid artwork config rerouted the audio path:\n%s", solid)
 	}
 }
 

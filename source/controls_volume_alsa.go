@@ -53,6 +53,10 @@ func (v *alsaControlVolume) Backend() string { return "ALSA Master (Luna volume 
 func amixerEnv() []string {
 	return []string{
 		"PATH=/system/bin:/usr/bin:/bin:/sbin:/usr/sbin",
+		// The vendor amixer links against the Quasar libasound, and a child of
+		// the plugin does not inherit the loader path the plugin was started
+		// with.
+		"LD_LIBRARY_PATH=/system/vendor/quasar/libs",
 		"HOME=/tmp",
 		"LANG=C",
 		"LC_ALL=C",
@@ -196,7 +200,10 @@ func quasarVolumeManagerPort() (int, bool) {
 	return cfg.VolumeManager.Port, true
 }
 
-func volumeManagerListening() bool {
+// volumeManagerListening is a var so a test can pin the probe result.
+var volumeManagerListening = probeVolumeManager
+
+func probeVolumeManager() bool {
 	port, ok := quasarVolumeManagerPort()
 	if !ok {
 		return false

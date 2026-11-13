@@ -18,6 +18,9 @@ import (
 )
 
 type controlsConfig struct {
+	// DefaultsVersion records which release's defaults this file has already
+	// been migrated through; missing means 2.1.4 or older.
+	DefaultsVersion int `json:"defaults_version,omitempty"`
 	// Omitted keeps the LED spectrum on; false restores the solid indication
 	// frames without opening a PCM tap or reading cover art.
 	Spectrum           *bool        `json:"spectrum,omitempty"`
@@ -142,6 +145,14 @@ type controlStation interface {
 // frame instead of a list of per-LED colours.
 type indicationStation interface {
 	Indicate(context.Context, string, uint8) error
+}
+
+// ringReleaser is implemented where owning the ring means more than drawing a
+// colour. Station 2 freezes the vendor LED thread, so it must be released
+// explicitly; a black frame would leave the station dark instead of handing
+// control back to its own indication.
+type ringReleaser interface {
+	Release(context.Context) error
 }
 
 func validDB(v float64) bool {
@@ -276,6 +287,7 @@ func (c *sharedController) speech(ctx context.Context, e speechEvent, now time.T
 		c.ledOwned = false
 		c.ledState = ""
 		c.ledSuspended = true
+		c.releaseRing(ctx)
 		return nil
 	}
 	if !c.active {
@@ -284,6 +296,7 @@ func (c *sharedController) speech(ctx context.Context, e speechEvent, now time.T
 	c.ledSuspended = true
 	c.ledOwned = false // do NOT send Off over Alice's freshly acquired indication.
 	c.ledState = ""
+	c.releaseRing(ctx)
 	if c.cfg.Ducking {
 		c.duckUntil = now.Add(4 * time.Second)
 		if err := c.receiver.Gain(ctx, 20, 4500); err != nil {
@@ -583,6 +596,7 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 				return err
 			}
 		}
+		c.releaseRing(ctx)
 		if c.ledOwned {
 			c.ledOwned = false
 			c.ledState = ""
@@ -636,15 +650,29 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 	// native volume has settled: its overlay can replace our one-shot frame.
 	// An observed legacy renderer remains the sole UI owner. Keep LEDs in
 	// the config so indication-only setups still subscribe to Alice's state.
-	if c.cfg.LEDs && c.rendererUpdate == nil && c.ledCount > 0 && c.aliceIdle && now.Before(c.speechFreshUntil) && !c.ledSuspended && !now.Before(c.ledQuietUntil) {
+	ind, indication := c.station.(indicationStation)
+	_, leased := c.station.(ringReleaser)
+	// A framebuffer backend owns the vendor LED thread for the whole session:
+	// do not wait for a fresh idle snapshot, because the sender may attach
+	// before Alice emits another idle event. A normal session repaints too,
+	// otherwise the first frame painted before the artwork arrived stays until
+	// Alice speaks again.
+	fresh := now.Before(c.speechFreshUntil) || c.active || leased
+	ledAllowed := c.cfg.LEDs && c.rendererUpdate == nil && c.ledCount > 0 && c.aliceIdle && fresh && !c.ledSuspended && !now.Before(c.ledQuietUntil)
+	if leased && !ledAllowed {
+		c.releaseRing(ctx)
+		c.ledOwned, c.ledState = false, ""
+	}
+	if ledAllowed {
+
 		state := "playing"
 		if !s.Active || now.Before(c.pausedUntil) {
 			state = "paused"
 		}
 		level := c.cfg.LEDLevel
 		if level == 0 {
-			if _, ok := c.station.(indicationStation); ok {
-				level = 200 // Station 2's previous playback frame was 0xcb
+			if indication {
+				level = 200
 			} else {
 				level = 16 // retain the original opt-in default
 			}
@@ -658,14 +686,15 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 			c.ledRefreshAt = now.Add(100 * time.Millisecond)
 			return errors.Join(nativeErr, volumeErr)
 		}
-		if ind, ok := c.station.(indicationStation); ok {
-			// Framebuffer rings paint a whole frame. Repaint on a state change
-			// and slowly afterwards in case Alice redrew her own indication.
+		if indication {
+			// Framebuffer rings paint a whole frame. The spectrum tap owns the
+			// playing path; this steady fill covers connect, pause and the gap
+			// before the first audio frame.
 			if !c.ledOwned || c.ledState != state || !now.Before(c.ledRefreshAt) {
 				if err = ind.Indicate(ctx, state, level); err != nil {
 					if errors.Is(err, errFramebufferBusy) {
-						// Firmware/Jarvis owns the frame. Do not fight it with a
-						// refresh or send Off over its newly painted animation.
+						// The vendor LED thread could not be leased. Do not
+						// fight it with a write or paint over its animation.
 						c.ledOwned, c.ledState = false, ""
 						return errors.Join(nativeErr, volumeErr)
 					}
@@ -681,6 +710,13 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 			for i := range colors {
 				colors[i] = fmt.Sprintf("#00%02x%02x", level, level/2)
 			}
+			// Solid indication follows the cover too; the teal frame above is
+			// only the fallback while the artwork is unknown.
+			if c.spectrum != nil {
+				if art := c.spectrum.solidFrame(c.ledCount, level); art != nil {
+					colors = art
+				}
+			}
 			c.ledMu.Lock()
 			err = c.station.Colors(ctx, colors)
 			c.ledMu.Unlock()
@@ -690,7 +726,9 @@ func (c *sharedController) tick(ctx context.Context, now time.Time) error {
 			}
 			aliceButtonDebug("led: ring state=%s level=%d", state, level)
 			c.ledOwned = true
-			c.ledRefreshAt = now.Add(3 * time.Second)
+			// A solid artwork frame is cheap; repaint often so a new cover and
+			// its palette appear without a multi-second lag.
+			c.ledRefreshAt = now.Add(500 * time.Millisecond)
 		}
 	}
 	return errors.Join(nativeErr, volumeErr)
@@ -718,7 +756,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 	v, err := c.station.GetVolume(ctx)
 	if err != nil {
 		c.volumeReady = false
-		c.ledQuietUntil = now.Add(3 * time.Second)
+		c.ledQuietUntil = now.Add(2 * time.Second)
 		return err
 	}
 	native, err := nativePercent(v)
@@ -727,7 +765,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 		return err
 	}
 	if c.nativeObserved && native != c.observedNative {
-		c.ledQuietUntil = now.Add(3 * time.Second)
+		c.ledQuietUntil = now.Add(2 * time.Second)
 	}
 	c.nativeObserved = true
 	c.observedNative = native
@@ -739,6 +777,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 		} else if !now.Before(c.remoteDeadline) {
 			c.remotePending = false
 			c.volumeReady = false
+			fmt.Fprintf(os.Stderr, "volume: sender ack timed out (db=%.2f last=%.2f native=%d)\n", s.DB, c.lastDB, native)
 			return errors.New("sender volume acknowledgement timed out")
 		} else {
 			c.remotePending = false
@@ -753,6 +792,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 		}
 		target := percentDB(native)
 		if math.Abs(s.DB-target) > 0.01 {
+			fmt.Fprintf(os.Stderr, "volume: initial publish native=%d%% -> sender db=%.2f\n", native, target)
 			if err = c.receiver.Volume(ctx, target); err != nil {
 				return err
 			}
@@ -774,6 +814,7 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 			if !s.Available {
 				return nil
 			}
+			fmt.Fprintf(os.Stderr, "volume: station native=%d%% -> sender db=%.2f\n", native, percentDB(native))
 			if err = c.receiver.Volume(ctx, percentDB(native)); err != nil {
 				return err
 			}
@@ -798,7 +839,9 @@ func (c *sharedController) syncVolume(ctx context.Context, s receiverState, now 
 }
 
 func (c *sharedController) applySenderVolume(ctx context.Context, s receiverState, now time.Time) error {
-	actual, err := c.station.SetVolume(ctx, dbPercentStep(s.DB, c.volumeStep))
+	target := dbPercentStep(s.DB, c.volumeStep)
+	fmt.Fprintf(os.Stderr, "volume: sender db=%.2f -> %d%% (last db=%.2f native=%d)\n", s.DB, target, c.lastDB, c.lastNative)
+	actual, err := c.station.SetVolume(ctx, target)
 	if err != nil {
 		c.volumeReady = false
 		return err
@@ -815,7 +858,8 @@ func (c *sharedController) applySenderVolume(ctx context.Context, s receiverStat
 	c.lastNative = native
 	c.lastDB = s.DB
 	c.pendingNative = -1
-	c.ledQuietUntil = now.Add(3 * time.Second)
+	c.ledQuietUntil = now.Add(2 * time.Second)
+	fmt.Fprintf(os.Stderr, "volume: applied readback=%d%% for sender db=%.2f\n", native, s.DB)
 	return nil
 }
 
@@ -829,19 +873,38 @@ func (c *sharedController) close(ctx context.Context) {
 		c.ledOwned = false
 		c.ledState = ""
 	}
+	c.releaseRing(ctx)
 	c.releaseNative()
 }
 
+// releaseRing hands a leased framebuffer ring back to the station. It is a
+// no-op for sysfs stations, whose Off already means "stop painting".
+func (c *sharedController) releaseRing(ctx context.Context) {
+	if r, ok := c.station.(ringReleaser); ok {
+		if err := r.Release(ctx); err != nil {
+			aliceButtonDebug("led: ring release failed: %v", err)
+		}
+	}
+}
+
 func supportedLEDCount(d yamDevice) int {
-	// Only documented YAM ring capabilities, never a guessed Station2 framebuffer.
-	if !feature(d, "led.ring.rgb") {
+	// Only documented YAM capabilities, never a guessed Station2 framebuffer.
+	// A station exposes either an RGB ring (led.ring.rgb/led.ring.N) or an RGB
+	// logo light (led.logo.rgb/led.logo.N); both answer the same /led API.
+	prefix := ""
+	switch {
+	case feature(d, "led.ring.rgb"):
+		prefix = "led.ring."
+	case feature(d, "led.logo.rgb"):
+		prefix = "led.logo."
+	default:
 		return 0
 	}
-	// The ring size is advertised per model (3, 4, 6, 12, 24, 36...). Read the
+	// The zone count is advertised per model (3, 4, 6, 12, 24, 36...). Read the
 	// number instead of keeping a list that silently disables new stations.
 	count := 0
 	for _, f := range d.Features {
-		value, ok := strings.CutPrefix(f, "led.ring.")
+		value, ok := strings.CutPrefix(f, prefix)
 		if !ok || value == "rgb" {
 			continue
 		}
@@ -858,8 +921,13 @@ func supportedLEDCount(d yamDevice) int {
 // an RGB ring stays on its existing indication.
 func spectrumSupported(d yamDevice) bool {
 	switch d.Model {
-	case "yandexstation_2", "yandexstation_3", "orion":
+	case "yandexstation_3", "orion":
 		return false
+	case "yandexstation_2":
+		// Station 2 has a real 89-pixel framebuffer ring with a dedicated
+		// takeover backend. Do not require the generic capability list here;
+		// older YAM builds omitted it while the ring was always present.
+		return true
 	}
 	return supportedLEDCount(d) > 0
 }

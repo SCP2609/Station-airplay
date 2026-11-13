@@ -17,6 +17,19 @@
       "matrix": null,
       "swap": false,
       "neutral_black": true
+    },
+    "station2": {
+      "label": "Station 2 · 89 LED",
+      "serial": "192.0.2.12:5555",
+      "transport": "file",
+      "path": "/run/station-airplay/test-frame.json",
+      "leds": 89,
+      "matrix": null,
+      "swap": false,
+      "neutral_black": true,
+      "neutral_gain": true,
+      "black_floor": 0.07,
+      "saturation": 1.35
     }
   }
 }

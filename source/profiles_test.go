@@ -85,6 +85,27 @@ func TestSharedProfilesKeepProvenAudioContract(t *testing.T) {
 	}
 }
 
+// The short back-end buffer and the latency offset were measured on the live
+// Mini and then rolled out to every shared profile. The offset gives up
+// multi-room sync with other AirPlay receivers on each of them.
+func TestSharedReceiverKeepsShortBackendBuffer(t *testing.T) {
+	for _, model := range []string{"yandexmini", "yandexmini_2", "yandexstation_2", "yandexmidi", "yandexplum", "yandexmicro"} {
+		p, ok := profileFor(model)
+		if !ok {
+			t.Fatal(model)
+		}
+		conf := receiverConfig(p)
+		for _, s := range []string{
+			"audio_backend_buffer_desired_length_in_seconds = 0.10;",
+			"audio_backend_latency_offset_in_seconds = -1.7;",
+		} {
+			if !strings.Contains(conf, s) {
+				t.Fatalf("%s lacks %q:\n%s", model, s, conf)
+			}
+		}
+	}
+}
+
 func TestLight2SharesMixerAndHoldsDisplay(t *testing.T) {
 	for _, model := range []string{"yandexplum", "plum"} {
 		p, ok := profileFor(model)
@@ -155,7 +176,7 @@ func TestMiniUsesFirmwareALSAAndPackagedDBus(t *testing.T) {
 		t.Fatalf("Mini firmware ALSA %q", got)
 	}
 	bin, args := dbusCommand("/pkg", mini, "dbus-daemon")
-	if bin != "/pkg/lib/ld-linux-armhf.so.3" || strings.Join(args, " ") != "--library-path /pkg/lib /pkg/bin/dbus-daemon" {
+	if bin != "/pkg/bin/dbus-daemon" || len(args) != 0 {
 		t.Fatalf("Mini D-Bus %s %v", bin, args)
 	}
 	station2, _ := profileFor("yandexstation_2")
@@ -288,7 +309,7 @@ func TestControlsDoNotSilentlyLoseTheirLoopToUpstreamDisplay(t *testing.T) {
 			t.Fatal(model, err)
 		}
 	}
-	for _, model := range []string{"yandexmini_3_pro", "yandexmini", "YandexStationMini"} {
+	for _, model := range []string{"yandexmini_3_pro", "yandexstation_3"} {
 		p, ok := profileFor(model)
 		if !ok {
 			t.Fatal(model)
@@ -299,55 +320,38 @@ func TestControlsDoNotSilentlyLoseTheirLoopToUpstreamDisplay(t *testing.T) {
 	}
 }
 
-func TestOriginalMiniRunsVolumeOnlyWithoutDBus(t *testing.T) {
+// The original Mini on Luna 0.2.26 advertises speech, commands, LED and
+// native player in /media, so its packaged D-Bus bridge carries the same
+// shared controls as the other ARMhf profiles. Station 3 and Mini 3 Pro keep
+// the audio-only gate.
+func TestOriginalMiniSharesControlsOnPackagedDBus(t *testing.T) {
+	full := &controlsConfig{NativeVolume: true, Voice: true, Ducking: true, LEDs: true, NativePlayer: true, AliceButton: true}
 	for _, model := range []string{"yandexmini", "YandexStationMini"} {
 		p, ok := profileFor(model)
 		if !ok {
 			t.Fatal(model)
 		}
-		if !p.volumeOnly || !p.packagedDBus {
-			t.Fatalf("%s is not the volume-only packaged-D-Bus profile", model)
+		if !p.sharedControls || !p.packagedDBus {
+			t.Fatalf("%s lost the packaged-D-Bus control profile: %+v", model, p)
 		}
-		if err := validateControlRenderer(p, &controlsConfig{NativeVolume: true}); err != nil {
-			t.Fatalf("%s volume-only rejected: %v", model, err)
+		if err := validateControlRenderer(p, full); err != nil {
+			t.Fatalf("%s rejected shared controls: %v", model, err)
 		}
-		if err := validateControlRenderer(p, &controlsConfig{NativeVolume: true, Voice: true}); err == nil {
-			t.Fatalf("%s accepted voice without a qualified D-Bus bridge", model)
-		}
-		if err := validateControlRenderer(p, &controlsConfig{}); err == nil {
-			t.Fatalf("%s accepted empty controls", model)
-		}
-		got := limitToVolumeOnly(p, &controlsConfig{
-			NativeVolume: true, Voice: true, Ducking: true, LEDs: true,
-			NativePlayer: true, AliceButton: true,
-		})
-		if !got.NativeVolume || got.Voice || got.Ducking || got.LEDs || got.NativePlayer || got.AliceButton {
-			t.Fatalf("%s did not downgrade to volume only: %+v", model, got)
+		if p.pcm != "softvol" || !p.quasarCoexist || p.receiverABI != "armhf" || firmwareALSA(p) != "/system/vendor/quasar/libs/libasound.so.2" {
+			t.Fatalf("%s audio contract changed: %+v", model, p)
 		}
 	}
-	station3, ok := profileFor("yandexstation_3")
-	if !ok || station3.volumeOnly {
-		t.Fatal("Station 3 must keep its current audio-only profile")
-	}
-}
-
-// A Luna host must not widen an unqualified control profile: the original
-// Mini keeps volume only, and Station 3 keeps its audio-only profile.
-func TestLunaHostDoesNotWidenUnqualifiedProfiles(t *testing.T) {
-	mini, ok := profileFor("yandexmini")
-	if !ok {
-		t.Fatal("Mini profile missing")
-	}
-	full := &controlsConfig{NativeVolume: true, Voice: true, Ducking: true, LEDs: true, NativePlayer: true, AliceButton: true}
-	got := limitToVolumeOnly(mini, full)
-	if !got.NativeVolume || got.Voice || got.Ducking || got.LEDs || got.NativePlayer || got.AliceButton {
-		t.Fatalf("Mini controls widened: %+v", got)
-	}
-	if err := validateControlRenderer(mini, got); err != nil {
-		t.Fatalf("volume-only Mini rejected: %v", err)
-	}
-	if err := validateControlRenderer(mini, full); err == nil {
-		t.Fatal("Mini accepted full packaged-D-Bus controls")
+	for _, model := range []string{"yandexstation_3", "yandexmini_3_pro"} {
+		p, ok := profileFor(model)
+		if !ok {
+			t.Fatal(model)
+		}
+		if p.sharedControls {
+			t.Fatalf("%s must stay an audio profile", model)
+		}
+		if err := validateControlRenderer(p, full); err == nil {
+			t.Fatalf("%s accepted unqualified controls", model)
+		}
 	}
 }
 
@@ -406,5 +410,29 @@ func TestMini3ClockRequiresCompleteCapabilities(t *testing.T) {
 	p, _ := profileForDevice(yamDevice{Model: "yandexmini_3_pro", Features: features}, true)
 	if p.ui || p.sharedUI {
 		t.Fatal("Mini3 Pro enabled accidentally")
+	}
+}
+
+func TestRuntimeEnvUsesFirmwareLoader(t *testing.T) {
+	env := runtimeEnv(
+		[]string{"PATH=/bin", "LD_LIBRARY_PATH=/old", "LD_PRELOAD=/old.so", "HOME=/"},
+		"/pkg/lib", "/usr/lib/libasound.so.2",
+	)
+	got := map[string]string{}
+	for _, s := range env {
+		key, value, _ := strings.Cut(s, "=")
+		got[key] = value
+	}
+	if got["PATH"] != "/bin" || got["HOME"] != "/" || len(env) != 4 {
+		t.Fatalf("unexpected child env %v", env)
+	}
+	if got["LD_LIBRARY_PATH"] != "/pkg/lib" {
+		t.Fatalf("library path %q", got["LD_LIBRARY_PATH"])
+	}
+	if got["LD_PRELOAD"] != "/usr/lib/libasound.so.2" {
+		t.Fatalf("preload %q", got["LD_PRELOAD"])
+	}
+	if env := runtimeEnv([]string{"A=1"}, "/pkg/lib", ""); len(env) != 2 || env[1] != "LD_LIBRARY_PATH=/pkg/lib" {
+		t.Fatalf("no-preload env %v", env)
 	}
 }

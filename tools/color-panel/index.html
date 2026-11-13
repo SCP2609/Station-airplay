@@ -224,7 +224,7 @@
       <div id="bands" style="margin-top:8px"></div>
     </details>
 
-    <div class="note">Панель повторяет алгоритм: 64×64 выборка, ячейка 8×8×8 RGB, усреднение соседних пикселей (радиус 0.16). Смена обложки в прошивке теперь ~0,6 с (было 2 с). Кольцо — 3 LED у кухни и 6 у Mini 2; red-матрица применяется только к Mini 2. Реальная яркость и диффузор здесь не имитируются.</div>
+    <div class="note">Панель повторяет алгоритм: 64×64 выборка, ячейка 8×8×8 RGB, усреднение соседних пикселей (радиус 0.16). Смена обложки в прошивке теперь ~0,6 с (было 2 с). Кольцо — 3 LED у Lite 2, 6 у Mini 2 и 89 у Station 2; red-матрица применяется только к Mini 2. У Station 2 панель кладёт кадр в файл, который держит плагин, пока файл не удалён; общая яркость задаётся штатной подсветкой панели. Реальная яркость и диффузор здесь не имитируются.</div>
   </section>
 </main>
 
@@ -246,6 +246,14 @@
   let TARGETS = {
     lite2: { label: "Lite 2 · 3 LED", leds: 3, neutralBlack: true },
     mini2: { label: "Mini 2 · 6 LED", leds: 6, neutralBlack: false },
+    station2: {
+      label: "Station 2 · 89 LED",
+      leds: 89,
+      neutralBlack: true,
+      neutralGain: true,
+      hold: true,
+      comfort: { floor: 0.07, ceiling: 1, sat: 1.35 },
+    },
   };
   let TARGET = "lite2";
   let LED_COUNT = TARGETS[TARGET].leds;
@@ -466,7 +474,9 @@
 
   function makeRing() {
     ring.innerHTML = "";
-    const cx = 95, cy = 95, r = 66;
+    const dense = LED_COUNT > 12;
+    const cx = 95, cy = 95, r = dense ? 80 : 66;
+    const size = dense ? 8 : 58;
     for (let i = 0; i < LED_COUNT; i++) {
       const a = -Math.PI / 2 + (i * 2 * Math.PI) / LED_COUNT;
       const el = document.createElement("i");
@@ -474,9 +484,19 @@
       el.style.left = (cx + r * Math.cos(a)) + "px";
       el.style.top = (cy + r * Math.sin(a)) + "px";
       el.style.background = "#111";
+      if (dense) {
+        el.style.width = size + "px";
+        el.style.height = size + "px";
+        el.style.boxShadow = "none";
+        el.style.border = "none";
+      }
       ring.appendChild(el);
     }
+    // 89 bars would not fit and the four-band split is meaningless for a dense
+    // ring; the frame preview plus the hex row is the useful view there.
+    bars.style.display = dense ? "none" : "";
     bars.innerHTML = "";
+    if (dense) return;
     for (let i = 0; i < LED_COUNT; i++) {
       const el = document.createElement("i");
       bars.appendChild(el);
@@ -493,23 +513,38 @@
     if (!r) return [];
     const p = state.params;
     const scale = level <= 0 ? 1 : Math.min(1, level / 200);
+    const comfort = TARGETS[TARGET].comfort || null;
     const out = [];
     for (let i = 0; i < n; i++) {
       const band = bandValue(i, n);
       let value = (p.floor + Math.pow(clamp(state.bands[band], 0, 1), p.gamma) * 0.9) * scale;
       if (p.gain !== 1 && !r.black) value *= p.gain;
       value = Math.min(1, value);
+      if (comfort && value > comfort.ceiling) value = comfort.ceiling;
       let rgb;
       if (r.black) {
-        // Mini 2 keeps its deliberately dim blue-grey fallback; Lite 2 has
-        // shown that as blue, so a black cover is really off there.
-        rgb = TARGETS[TARGET].neutralBlack ? [0, 0, 0] : [24, 32, 48].map((x) => x * value);
+        if (comfort && comfort.floor > 0) {
+          // Station 2 keeps a faint violet glow instead of going dark.
+          const glow = Math.min(1, comfort.floor + value * 0.12);
+          rgb = [0.55 * glow, 0.30 * glow, 0.85 * glow].map((x) => x * 255);
+        } else {
+          // Mini 2 keeps its deliberately dim blue-grey fallback; Lite 2 has
+          // shown that as blue, so a black cover is really off there.
+          rgb = TARGETS[TARGET].neutralBlack ? [0, 0, 0] : [24, 32, 48].map((x) => x * value);
+        }
       } else {
         // Colour is boosted for chromatic covers; neutral covers keep their
         // own RGB ratios (white, grey, cream). Per-channel gains neutralise
         // the stock LED white balance.
-        rgb = r.finalRGB.map((x) => x * value * 255);
-        if (balance) {
+        let base = r.finalRGB;
+        if (comfort && comfort.sat > 1) {
+          // A diffused panel washes muted colours toward white; stretch them
+          // around their luminance so white and grey stay neutral.
+          const l = 0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2];
+          base = base.map((x) => clamp(l + (x - l) * comfort.sat, 0, 1));
+        }
+        rgb = base.map((x) => x * value * 255);
+        if (balance && !TARGETS[TARGET].neutralGain) {
           rgb = [rgb[0] * p.gainR, rgb[1] * p.gainG, rgb[2] * p.gainB];
         }
       }
@@ -535,7 +570,9 @@
     $("kind").textContent = r.black ? "чёрная" : r.chromatic ? "цветная" : "нейтральная";
 
     const d = $("decision");
-    if (r.black) {
+    if (r.black && TARGETS[TARGET].comfort) {
+      d.innerHTML = '<b class="warn">Чёрная обложка.</b> Кольцо держит тёмно-фиолетовое свечение и чуть приподнимается с музыкой.';
+    } else if (r.black) {
       d.innerHTML = '<b class="warn">Чёрная обложка.</b> Кольцо почти выключено, только очень тёмный сине-серый пульс.';
     } else if (r.chromatic && r.coherent && !r.greyBackground && !r.mostlyNeutral) {
       d.innerHTML = '<b class="good">Цветная обложка.</b> Кольцо красится в её цвет; насыщенность усилена на ' + Math.round(p.boost * 100) + '%.';
@@ -665,6 +702,7 @@
     if (state.result) render();
     updateSummary();
     if (persist) saveParams();
+    defaultLiveStatus();
   }
 
   ranges.forEach(([id, key, div, label]) => {
@@ -699,13 +737,17 @@
     el.className = "note" + (kind ? " " + kind : "");
   }
 
+  function defaultLiveStatus() {
+    setLiveStatus(
+      TARGETS[TARGET].hold
+        ? "кадр держится, пока не нажмёшь «погасить»; AirPlay может играть"
+        : "кнопка работает на паузе; при воспроизведении плагин перезапишет кадр"
+    );
+  }
+
   $("target").addEventListener("change", (e) => {
     applyTarget(e.target.value, true);
-    setLiveStatus(
-      TARGETS[TARGET].neutralBlack
-        ? "выбрано: " + TARGETS[TARGET].label + " · без red-матрицы"
-        : "выбрано: " + TARGETS[TARGET].label + " · мост применяет red-матрицу"
-    );
+    defaultLiveStatus();
   });
 
   $("paramsummary").addEventListener("click", async () => {
@@ -743,11 +785,13 @@
     try {
       const j = await postPreview("/api/preview", { device: TARGET, colors, params: paramState() });
       setLiveStatus(
-        j.playing
+        j.preview
+          ? "отправлено и держится: " + where + " · «погасить» вернёт штатное кольцо"
+          : j.playing
           ? "отправлено, но AirPlay играет — плагин скоро перезапишет кадр"
           : "отправлено: " + where +
             (TARGETS[TARGET].neutralBlack ? " · без матрицы" : " · red-матрица"),
-        j.playing ? "bad" : "ok"
+        j.preview || !j.playing ? "ok" : "bad"
       );
     } catch (e) {
       setLiveStatus("не отправлено: " + (e.message || e), "bad");
@@ -921,6 +965,11 @@
               label: target.label || name,
               leds: target.leds || 3,
               neutralBlack: !!target.neutral_black,
+              neutralGain: !!target.neutral_gain,
+              hold: !!target.hold,
+              comfort: target.black_floor || target.saturation > 1
+                ? { floor: target.black_floor || 0, ceiling: 1, sat: target.saturation || 1 }
+                : null,
             };
           }
         }

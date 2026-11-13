@@ -66,7 +66,7 @@ func (l *boundedLog) Write(b []byte) (int, error) {
 }
 
 func run(ctx context.Context, sharedAudio bool) error {
-	return runWithControls(ctx, sharedAudio, nil)
+	return runWithControls(ctx, sharedAudio, nil, "")
 }
 
 // kernelArch reports the machine the kernel runs, not the userspace ABI this
@@ -87,7 +87,7 @@ func kernelArch() string {
 	return string(b)
 }
 
-func runWithControls(ctx context.Context, sharedAudio bool, controls *controlsConfig) error {
+func runWithControls(ctx context.Context, sharedAudio bool, controls *controlsConfig, controlsPath string) error {
 	api, err := newYAMAPI()
 	if err != nil {
 		return err
@@ -101,14 +101,19 @@ func runWithControls(ctx context.Context, sharedAudio bool, controls *controlsCo
 	if err != nil {
 		return err
 	}
+	// Existing installs keep their JSON across upgrades. Update the defaults
+	// once per release, but never overwrite a value the owner changed.
+	controls, err = migrateControls(controlsPath, d.Model, controls)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "station-airplay: controls defaults: %v\n", err)
+	}
 	p, ok := profileForDevice(d, sharedAudio)
 	if !ok {
 		return fmt.Errorf("unsupported YAM model %q", d.Model)
 	}
-	controls = limitToVolumeOnly(p, controls)
 	// A model whose control profile is not qualified still has to play audio:
-	// the original Mini, Station 3 and Mini 3 have no validated D-Bus
-	// transport, and refusing to start left them with a dead plugin.
+	// Station 3 and Mini 3 Pro have no qualified shared-control transport, and
+	// refusing to start left them with a dead plugin.
 	if err = validateControlRenderer(p, controls); err != nil {
 		fmt.Fprintf(os.Stderr, "station-airplay: shared controls disabled: %v\n", err)
 		controls = nil
@@ -119,13 +124,13 @@ func runWithControls(ctx context.Context, sharedAudio bool, controls *controlsCo
 	}
 	if controls != nil {
 		if err = controlsPreflight(ctx, api, d, controls); err != nil {
-			if !p.volumeOnly {
+			if !p.sharedControls || !p.packagedDBus {
 				return err
 			}
-			// The Mini must keep playing even when Luna cannot expose its
-			// volume endpoint (an emulator, an older host, a first boot).
-			// Volume is an enhancement here, not a startup condition.
-			fmt.Fprintf(os.Stderr, "station-airplay: Mini volume preflight failed, continuing audio-only: %v\n", err)
+			// The Mini must keep playing even when Luna cannot expose a control
+			// capability (an emulator, an older host, a first boot). The packaged
+			// bridge is an enhancement here, not a startup condition.
+			fmt.Fprintf(os.Stderr, "station-airplay: Mini controls unavailable, continuing audio-only: %v\n", err)
 			controls = nil
 		}
 	}
@@ -133,24 +138,6 @@ func runWithControls(ctx context.Context, sharedAudio bool, controls *controlsCo
 		return errors.New("shared profiles require an AArch64 kernel")
 	}
 	return runSharedControls(ctx, p, api, d, controls)
-}
-
-// limitToVolumeOnly keeps the original Mini's unqualified speech and button
-// bridge off while retaining the one control layer that Luna can own without
-// D-Bus: the sender's volume slider. Other packaged-D-Bus profiles are left
-// untouched, so Station 3 keeps its current audio-only behaviour.
-func limitToVolumeOnly(p stationProfile, controls *controlsConfig) *controlsConfig {
-	if !p.volumeOnly || controls == nil || !controls.NativeVolume {
-		return controls
-	}
-	if !controls.Voice && !controls.Ducking && !controls.LEDs && !controls.NativePlayer && !controls.AliceButton {
-		return controls
-	}
-	c := *controls
-	c.Voice, c.Ducking, c.LEDs = false, false, false
-	c.NativePlayer, c.AliceButton = false, false
-	fmt.Println("shared controls: Mini packaged D-Bus supports volume only; voice, ducking, LEDs, native player and Alice button stay off")
-	return &c
 }
 
 // A renderer must have only one UI owner. Controls keep their explicit
@@ -173,15 +160,7 @@ func validateControlRenderer(p stationProfile, controls *controlsConfig) error {
 	if p.receiverABI == "aarch64" {
 		return errors.New("shared controls require the control-enabled ARMhf receiver; AArch64 control build is not qualified")
 	}
-	if p.packagedDBus {
-		if p.volumeOnly && controls.NativeVolume &&
-			!controls.Voice && !controls.Ducking && !controls.LEDs &&
-			!controls.NativePlayer && !controls.AliceButton {
-			return nil
-		}
-		if p.volumeOnly {
-			return errors.New("shared controls for the original Mini packaged D-Bus profile are volume-only; enable native_volume")
-		}
+	if p.packagedDBus && !p.sharedControls {
 		return errors.New("shared controls for the packaged D-Bus profile are not qualified; audio-only upstream mode remains available")
 	}
 	return nil
@@ -251,6 +230,14 @@ func receiverConfig(p stationProfile) string {
  volume_range_db = 50;
  resync_threshold_in_seconds = 0.050;
  drift_tolerance_in_seconds = 0.002;
+ // Stay well inside AirPlay's own buffering: the stock 0.2 s backend buffer
+ // adds avoidable start-up and resume delay in front of the shared mixer.
+ audio_backend_buffer_desired_length_in_seconds = 0.10;
+ // Play 1.7 s ahead of the negotiated latency: about 2 s from the sender
+ // minus the 0.1 s back-end buffer leaves the buffer that survived the live
+ // Mini. The offset trades multi-room sync with other AirPlay receivers;
+ // lower it if the link underruns.
+ audio_backend_latency_offset_in_seconds = -1.7;
 };
 sessioncontrol = { allow_session_interruption = "yes"; session_timeout = 60; };
 alsa = {
@@ -305,12 +292,15 @@ func uiAsoundSpectrum(pcm, clockFIFO, spectrumFIFO string) string {
 `, stream)
 }
 
-func receiverControlConfig(p stationProfile, controls *controlsConfig, spectrum ...bool) string {
+func receiverControlConfig(p stationProfile, controls *controlsConfig, artwork ...bool) string {
 	config := receiverConfig(p)
 	if controls == nil {
 		return config
 	}
-	withSpectrum := len(spectrum) > 0 && spectrum[0]
+	withArtwork := len(artwork) > 0 && artwork[0]
+	// Only the PCM analyser needs the tee. A solid artwork frame reads the
+	// receiver's cover cache and leaves the audio path alone.
+	withSpectrum := withArtwork && controls.useSpectrum()
 	if withSpectrum {
 		// The ALSA file plugin copies the same PCM into the analyser FIFO and
 		// passes it through to the station mixer. Audio is not re-routed.
@@ -321,9 +311,9 @@ func receiverControlConfig(p stationProfile, controls *controlsConfig, spectrum 
 	// Keep its unused FIFO private and volatile; never request artwork/cache files.
 	config = strings.Replace(config, `metadata = { enabled = "no"; };`,
 		fmt.Sprintf(`metadata = { enabled = "yes"; include_cover_art = "no"; pipe_name = %q; cover_art_cache_directory = %q; };`, controlMetadataFIFO, coverArtDir), 1)
-	if withSpectrum {
-		// Artwork is requested only for the LED visualiser. Normalise the cache
-		// key first so the non-UI template does not end up with a duplicate.
+	if withArtwork {
+		// Normalise the cache key first so the non-UI template does not end up
+		// with a duplicate.
 		config = strings.Replace(config, `; cover_art_cache_directory = "/run/station-airplay/coverart"`, "", 1)
 		config = strings.Replace(config, `include_cover_art = "no"`,
 			`include_cover_art = "yes"; cover_art_cache_directory = "/run/station-airplay/coverart"`, 1)
@@ -410,13 +400,13 @@ func stockHost(p stationProfile) (string, error) {
 	return stockHostname(p.mdnsHostPrefix, string(b))
 }
 
-// dbusCommand returns the loader and leading arguments for a D-Bus tool:
-// firmware /usr/bin, or the packaged ARMhf build behind the packaged loader.
+// dbusCommand returns the D-Bus tool: firmware /usr/bin or the packaged ARMhf
+// build. Packaged children receive LD_LIBRARY_PATH from runtimeEnv.
 func dbusCommand(root string, p stationProfile, tool string) (string, []string) {
 	if !p.packagedDBus {
 		return "/usr/bin/" + tool, nil
 	}
-	return filepath.Join(root, "lib/ld-linux-armhf.so.3"), []string{"--library-path", filepath.Join(root, "lib"), filepath.Join(root, "bin", tool)}
+	return filepath.Join(root, "bin", tool), nil
 }
 
 func firmwareALSA(p stationProfile) string {
@@ -489,11 +479,18 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 	if err = preflight(p); err != nil {
 		return err
 	}
-	var metaFD, audioFD, spectrumFD int
+	var metaFD, audioFD int
+	// -1 means "no analyser FIFO": a solid artwork frame reads only the
+	// receiver's cover cache.
+	spectrumFD := -1
 	var pcm <-chan visualizerPCM
 	var pcmErrors <-chan error
 	var tap *spectrumTap
-	spectrum := controls != nil && controls.useSpectrum() && spectrumSupported(d)
+	// Artwork drives both the PCM spectrum and the solid indication colour, so
+	// the receiver asks for covers whenever the LEDs are on. Only the PCM tee
+	// and the analyser depend on the spectrum option.
+	artwork := controls != nil && controls.LEDs && spectrumSupported(d)
+	spectrum := artwork && controls.useSpectrum()
 	if p.ui {
 		if p.sharedUI {
 			// The selected profile has already checked its capabilities. Do
@@ -541,17 +538,19 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		var stopPCM func()
 		pcm, pcmErrors, stopPCM = startVisualizerPCM(audioFD)
 		defer stopPCM() // Registered before child cleanup: keep draining until they stop.
-	} else if spectrum {
+	} else if artwork {
 		if err = os.MkdirAll(coverArtDir, 0700); err != nil {
 			return err
 		}
-		if err = os.WriteFile(filepath.Join(state, ".asoundrc"), []byte(uiAsoundSpectrum(p.pcm, "", spectrumFIFO)), 0600); err != nil {
-			return err
+		if spectrum {
+			if err = os.WriteFile(filepath.Join(state, ".asoundrc"), []byte(uiAsoundSpectrum(p.pcm, "", spectrumFIFO)), 0600); err != nil {
+				return err
+			}
+			if spectrumFD, err = ensureFIFO(spectrumFIFO); err != nil {
+				return err
+			}
+			defer syscall.Close(spectrumFD)
 		}
-		if spectrumFD, err = ensureFIFO(spectrumFIFO); err != nil {
-			return err
-		}
-		defer syscall.Close(spectrumFD)
 		// The receiver still publishes metadata and artwork here; drain its
 		// FIFO so a full buffer cannot block playback while the display
 		// renderer is not running.
@@ -561,6 +560,13 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		defer syscall.Close(metaFD)
 		go drainFIFO(ctx, metaFD)
 		tap = newSpectrumTap(coverArtDir)
+		if !spectrum {
+			// A solid frame still needs the per-model gains and neutral-black
+			// rule; the spectrum path configures the tap when it starts.
+			if err = configureSpectrum(d, *controls, tap); err != nil {
+				return err
+			}
+		}
 		go tap.run(ctx, spectrumFD)
 	}
 	for _, port := range []int{319, 320, 9000} {
@@ -580,6 +586,8 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		return err
 	}
 	env := audioEnv(os.Environ(), state, bus)
+	libs := filepath.Join(root, "lib")
+	libEnv := runtimeEnv(env, libs, "")
 	children := []*child{}
 	controlDone := make(chan struct{})
 	controlErrors := make(chan error, 1)
@@ -593,12 +601,12 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		stopChildren(children)
 	}()
 	exits := make(chan exitInfo, 4)
-	launch := func(name, bin string, args ...string) error {
+	launchWith := func(name, bin string, childEnv []string, args ...string) error {
 		file, e := os.OpenFile(filepath.Join(state, name+".log"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
 		if e != nil {
 			return e
 		}
-		c, e := startChild(ctx, bin, args, env, &boundedLog{f: file})
+		c, e := startChild(ctx, bin, args, childEnv, &boundedLog{f: file})
 		if e != nil {
 			file.Close()
 			return e
@@ -613,29 +621,35 @@ func serveSharedControls(ctx context.Context, p stationProfile, api *yamAPI, d y
 		}()
 		return nil
 	}
-	if err = startPrivateMDNS(ctx, root, state, p, env, launch, exits); err != nil {
+	childEnv := func(bin string) []string {
+		if strings.HasPrefix(bin, root+string(filepath.Separator)) {
+			return libEnv
+		}
+		// Firmware tools such as /usr/bin/dbus-daemon must keep their own libdbus.
+		return env
+	}
+	launch := func(name, bin string, args ...string) error {
+		return launchWith(name, bin, childEnv(bin), args...)
+	}
+	if err = startPrivateMDNS(ctx, root, state, p, childEnv, launch, exits); err != nil {
 		return err
 	}
 	ready := func(stage string, check func(context.Context) error) error {
 		return waitSharedStartup(ctx, stage, sharedStartupTimeout, sharedStartupInterval, exits, check)
 	}
-	ld32 := filepath.Join(root, "lib/ld-linux-armhf.so.3")
-	libs := filepath.Join(root, "lib")
 	launchAP2 := func(name string, args ...string) error {
-		loader, paths, binary := ld32, libs, name
-		var preload []string
+		binary, childEnv := name, libEnv
 		if name == "shairport-sync" {
 			binary = "shairport-sync-ap2"
 			if p.receiverABI == "aarch64" {
-				loader, paths, binary = "/lib/ld-linux-aarch64.so.1", filepath.Join(libs, "aarch64")+":/usr/lib:/lib", binary+"-aarch64"
+				binary += "-aarch64"
+				childEnv = runtimeEnv(env, filepath.Join(libs, "aarch64")+":/usr/lib:/lib", "")
 			} else {
 				// Shared dmix must use the firmware ALSA ABI, not the legacy Light library.
-				preload = []string{"--preload", firmwareALSA(p)}
+				childEnv = runtimeEnv(env, libs, firmwareALSA(p))
 			}
 		}
-		argv := append([]string{"--library-path", paths}, preload...)
-		argv = append(argv, filepath.Join(root, "bin", binary))
-		return launch(name, loader, append(argv, args...)...)
+		return launchWith(name, filepath.Join(root, "bin", binary), childEnv, args...)
 	}
 	if err = launchAP2("nqptp", "-v"); err != nil {
 		return err

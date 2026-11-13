@@ -15,15 +15,15 @@ launcher, а `scripts/package_yampkg.py` пересобирает пакеты �
 - `launch-airplay.sh.in` — общий launcher. Плейсхолдеры подставляет сборщик.
 - `requirements.txt` — PyYAML для чтения и записи `MANIFEST.yaml`.
 
-## Матрица 2.1.4
+## Матрица 2.1.5
 
 | Цель | Управление | Что меняется |
 |---|---|---|
-| `yandexstation_2` | полное | `spectrum: false`: большой экран, обложки не включаются |
+| `yandexstation_2` | полное | `spectrum: true`: захват 89-пиксельного framebuffer-кольца |
 | `yandexmini_2` | полное | `spectrum: true`, `led_color_profile: "red"`, яркость `1.25` |
 | `plum`, `yandexplum` | полное | `spectrum: true`, яркость `1.25`, баланс белого `1.5/0.5/0.71` |
 | `yandexmidi`, `cucumber` | полное | добавлен `--controls-config`; включены `native_player` и `alice_button` |
-| `yandexmini` | только громкость | добавлен `--controls-config`; остальные флаги выключены |
+| `yandexmini` | полное, кроме кнопки Алисы | включены голос, ducking, индикация и native player; `spectrum: false` для шестизонного логотипа |
 | `yandexmicro` | голос, ducking, громкость, индикация; native player при наличии Quasar CLI | без изменений |
 | `mango` | голос, ducking, индикация | без изменений |
 | `orion` | только звук | `spectrum: false`: большой экран |
@@ -33,11 +33,13 @@ launcher, а `scripts/package_yampkg.py` пересобирает пакеты �
 `led_level` остаётся 200 у всех целей. Для аудио-профилей JSON всё равно
 создаётся launcher'ом при первом запуске, но не передаётся супервизору.
 
-Матрица 2.1.4 добавляет в конфиг `spectrum`, `spectrum_brightness`,
+Матрица 2.1.5 добавляет в конфиг `spectrum`, `spectrum_brightness`,
 `spectrum_gain_r/g/b` и `led_color_profile`. Обложки включены на всех целях с
-RGB-кольцом, кроме `yandexstation_2` и `orion` (Станция 2 и Станция 3). У
-`yandexmini` и `pickle` управление не передаётся, поэтому обложки начнут
-работать только после квалификации их shared-профиля.
+RGB-кольцом, включая `yandexstation_2`: у неё нет sysfs-кольца, поэтому
+плагин на время сессии забирает 89-пиксельный `/dev/fb0` у `led-animator` и
+возвращает его после отключения. Исключены только `yandexstation_3` и
+`orion`. У `pickle` управление не передаётся, поэтому обложки начнут работать
+только после квалификации AArch64-профиля.
 
 ## Сборка
 
@@ -48,7 +50,7 @@ python3 scripts/package_yampkg.py --check
 python3 scripts/package_yampkg.py \
   --base /path/to/published/2.1.2 \
   --binary /path/to/station-airplay-2.1.2.upx \
-  --version 2.1.4 \
+  --version 2.1.5 --slim-runtime \
   --out dist/yampkg
 ```
 
@@ -76,6 +78,9 @@ ARMv7-супервизор; сборщик проверяет ELF32/EM_ARM. `--v
   `Требует Luna <версия>+.` из `LUNA_DEPENDENCY`.
 - `MANIFEST.yaml` — target, версия, `depends: yam/luna >=0.2.26` и все
   `files_sha256`, включая добавленные AArch64-файлы.
+
+Архив упаковывается `zstd -19`: формат и распаковка на колонке не меняются,
+но итоговый `.yampkg` меньше, чем при уровне по умолчанию (`tar --zstd`).
 
 Сборщик проверяет хеши базового пакета до правок и хеши результата после
 упаковки, а также ELF-класс, архитектуру, launcher/config и наличие
