@@ -23,7 +23,7 @@ func TestArtworkFadeEasesCoverChange(t *testing.T) {
 	if rgb, _ := tap.easedArtwork(base); rgb != [3]float64{1, 0, 0} {
 		t.Fatalf("new cover applied in the same frame: %v", rgb)
 	}
-	rgb, pal = tap.easedArtwork(base.Add(300 * time.Millisecond))
+	rgb, pal = tap.easedArtwork(base.Add(artworkFade / 2))
 	if !(rgb[0] > 0.1 && rgb[2] > 0.1) {
 		t.Fatalf("no intermediate colour: %v", rgb)
 	}

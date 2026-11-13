@@ -99,9 +99,9 @@ type spectrumTap struct {
 	fadePalette  [][3]float64
 }
 
-// artworkFade is the length of the cover cross-fade: long enough to read as a
-// transition, short enough that skipping a track does not feel sluggish.
-const artworkFade = 600 * time.Millisecond
+// artworkFade is the length of the cover cross-fade. 300 ms keeps the change
+// visible without lagging behind a track skip.
+const artworkFade = 300 * time.Millisecond
 
 // easedArtwork returns the colour and palette the ring should show now. A new
 // cover is cross-faded from the previous one with smoothstep, so both the 10 Hz
