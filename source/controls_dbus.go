@@ -131,6 +131,25 @@ func serveControlsObserved(ctx context.Context, bus string, api *yamAPI, d yamDe
 // serveControlsUI also attaches the optional spectrum tap. animateRing is true
 // when the controls tick owns the RGB ring; clock renderers feed the tap from
 // their own display loop instead.
+// configureSolidFloor sets how far a dim artwork is lifted on a solid frame.
+// It runs for every model, including the ones that keep `spectrum` off and so
+// never reach configureSpectrum.
+func configureSolidFloor(d yamDevice, tap *spectrumTap) {
+	if tap == nil {
+		return
+	}
+	floor := solidMinValue
+	if d.Model == "yandexmini" || d.Model == "YandexStationMini" {
+		// The six-zone logo runs at the LED driver's stock current and reads
+		// as underdriven at the tuned floor, so it uses the whole range.
+		floor = solidFullValue
+	}
+	tap.mu.Lock()
+	tap.solidFloor = floor
+	tap.mu.Unlock()
+	fmt.Fprintf(os.Stderr, "airplay spectrum: solid frame floor %.2f\n", floor)
+}
+
 func serveControlsUI(ctx context.Context, bus string, api *yamAPI, d yamDevice, cfg controlsConfig, observer func(rendererControlState), spectrum *spectrumTap, animateRing bool) error {
 	r, err := openReceiver(bus)
 	if err != nil {
@@ -143,6 +162,9 @@ func serveControlsUI(ctx context.Context, bus string, api *yamAPI, d yamDevice, 
 	}
 	station := controlStation(yamControlStation{api: api, volume: volume})
 	ledCount := supportedLEDCount(d)
+	if cfg.LEDs {
+		configureSolidFloor(d, spectrum)
+	}
 	if cfg.LEDs && d.Model == "yandexstation_2" {
 		// Station 2 exposes an 89x1 framebuffer instead of a sysfs ring and YAM
 		// has no framebuffer LED backend. Paint the ring here; a geometry
@@ -467,6 +489,7 @@ func configureSpectrum(d yamDevice, cfg controlsConfig, tap *spectrumTap) error 
 	tap.gain = gain
 	tap.neutralBlack = neutralBlack
 	tap.swapRB = swap
+	floor := tap.solidFloor
 	tap.mu.Unlock()
 	if profile != "" {
 		if d.Model != "yandexmini_2" {
@@ -484,8 +507,8 @@ func configureSpectrum(d yamDevice, cfg controlsConfig, tap *spectrumTap) error 
 			fmt.Fprintf(os.Stderr, "airplay spectrum: stock LED colour profile %s\n", profile)
 		}
 	}
-	fmt.Fprintf(os.Stderr, "airplay spectrum: brightness %.2f (0=default), white balance %.2f/%.2f/%.2f, neutral black %t\n",
-		cfg.SpectrumBrightness, gain[0], gain[1], gain[2], neutralBlack)
+	fmt.Fprintf(os.Stderr, "airplay spectrum: brightness %.2f (0=default), white balance %.2f/%.2f/%.2f, neutral black %t, solid floor %.2f\n",
+		cfg.SpectrumBrightness, gain[0], gain[1], gain[2], neutralBlack, floor)
 	return nil
 }
 

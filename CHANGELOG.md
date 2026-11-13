@@ -1,5 +1,12 @@
 ## 2.1.5
 
+- Paint the original Mini's logo at full value. Its six zones run at the
+  SN3236's stock current, and a solid frame lifted only to the tuned 45%
+  floor read as underdriven: a trace of the I2C bus showed live frames at
+  `0x45`-`0x67`. The Mini now lifts a dim cover to the top of the range, so
+  a dark red cover arrives as `#FF0000`; every other model keeps
+  `solidMinValue`.
+
 - Enable shared controls on the original Mini (`yandexmini`,
   `YandexStationMini`): voice transport, two-way volume, speech ducking,
   indication and the native player, all through the packaged D-Bus bridge.
