@@ -6,7 +6,7 @@ import tempfile
 root = Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='station-dacp-endpoint-') as temporary:
     work = Path(temporary)
-    subprocess.run(['tar', '-xf', str(root/'third_party/shairport-sync-5.6.2.tar.gz'),
+    subprocess.run(['tar', '-xf', str(root/'third_party/shairport-sync-5.6.3.tar.gz'),
                     '--strip-components=1', '-C', str(work)], check=True)
     for name in ['shared-controls.patch', 'dacp-ipv4-discovery.patch']:
         subprocess.run(['patch', '--batch', '-p1', '-d', str(work),

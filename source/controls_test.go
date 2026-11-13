@@ -278,6 +278,13 @@ func TestControlUnknownLEDBackendSkipped(t *testing.T) {
 	if supportedLEDCount(yamDevice{Features: []string{"led.ring.6", "led.ring.rgb"}}) != 6 {
 		t.Fatal("Mini2 declared ring not recognised")
 	}
+	// The original Mini lights a six-zone RGB logo instead of a ring.
+	if got := supportedLEDCount(yamDevice{Features: []string{"led.logo.rgb", "led.logo.6", "led.logo", "led.sysfs"}}); got != 6 {
+		t.Fatalf("Mini logo LEDs reported %d", got)
+	}
+	if got := supportedLEDCount(yamDevice{Features: []string{"led.logo", "led.sysfs"}}); got != 0 {
+		t.Fatalf("logo without an RGB capability reported %d zones", got)
+	}
 	for size := range map[int]bool{3: true, 4: true, 6: true, 12: true, 24: true, 36: true} {
 		dev := yamDevice{Features: []string{fmt.Sprintf("led.ring.%d", size), "led.ring.rgb"}}
 		if got := supportedLEDCount(dev); got != size {

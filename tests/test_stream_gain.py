@@ -4,9 +4,9 @@ import subprocess,tarfile,tempfile
 root=Path(__file__).resolve().parent.parent
 with tempfile.TemporaryDirectory(prefix='station-stream-gain-') as temporary:
     work=Path(temporary);(work/'dbus').mkdir()
-    with tarfile.open(root/'third_party/shairport-sync-5.6.2.tar.gz') as archive:
+    with tarfile.open(root/'third_party/shairport-sync-5.6.3.tar.gz') as archive:
         for name in ['player.c','dbus/dbus-service.c','dbus/org.gnome.ShairportSync.xml']:
-            (work/name).write_bytes(archive.extractfile('shairport-sync-5.6.2/'+name).read())
+            (work/name).write_bytes(archive.extractfile('shairport-sync-5.6.3/'+name).read())
     subprocess.run(['patch','-p1','-d',str(work),'-i',str(root/'support/shared-controls.patch')],check=True)
     exe=work/'gain-test'
     subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',

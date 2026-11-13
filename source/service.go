@@ -212,10 +212,24 @@ type stationProfile struct {
 	// packagedDBus: the firmware has no dbus-daemon/dbus-send; run the
 	// packaged ARMhf build for the private bus.
 	packagedDBus bool
-	// volumeOnly: a packaged D-Bus profile may run native_volume alone. The
-	// original Mini has no qualified speech/button transport, but Luna owns its
-	// station volume, so the sender's slider can work without the full bridge.
-	volumeOnly bool
+	// sharedControls: the packaged D-Bus profile shares the receiver control
+	// API with the other ARMhf profiles. controlsPreflight still disables every
+	// feature the host does not advertise, so an older Luna degrades instead of
+	// failing the whole service.
+	sharedControls bool
+	// lowLatency: this model runs the 0.1 s back-end buffer and the -1.7 s
+	// latency offset measured on a live unit. Multi-room sync is traded away,
+	// so the other models keep the stock timing until their own unit confirms
+	// the same numbers.
+	lowLatency bool
+	// sessionIndication: the LED tick owns the ring for the whole session, not
+	// only inside Alice's post-speech window. A solid artwork indication needs
+	// it, otherwise its first frame stays for the whole track.
+	sessionIndication bool
+	// directMixer: the firmware configures a Quasar volume-manager port that
+	// never listens, so Luna's writes stall on it. Write the ALSA Master
+	// directly instead and let Luna read the same control back.
+	directMixer bool
 }
 
 var (
@@ -246,8 +260,12 @@ var (
 		// on hw:0,0 at 48 kHz. Open softvol directly: this alsa-lib's plug loads
 		// a libsamplerate converter that only resolves on Quasar's library path
 		// (hw params fail with ENOENT). Station volume applies to AirPlay too.
-		// Firmware alsa-lib lives under quasar/libs. No D-Bus on the firmware.
-		{name: "Yandex Station Mini AirPlay", models: []string{"yandexmini", "YandexStationMini"}, pcm: "softvol", quasarCoexist: true, mdnsHostPrefix: "yandexmini", receiverABI: "armhf", airplayModel: "AudioAccessory5,1", alsaLib: "/system/vendor/quasar/libs/libasound.so.2", nvramHostID: true, packagedDBus: true, volumeOnly: true},
+		// Firmware alsa-lib lives under quasar/libs. No D-Bus on the firmware, so
+		// the packaged daemon runs behind the packaged loader. On Luna 0.2.26
+		// /media advertises speech, commands, native player and six RGB logo
+		// LEDs, so the control bridge is qualified; the Alice-button transport is
+		// not advertised and stays off.
+		{name: "Yandex Station Mini AirPlay", models: []string{"yandexmini", "YandexStationMini"}, pcm: "softvol", quasarCoexist: true, mdnsHostPrefix: "yandexmini", receiverABI: "armhf", airplayModel: "AudioAccessory5,1", alsaLib: "/system/vendor/quasar/libs/libasound.so.2", nvramHostID: true, packagedDBus: true, sharedControls: true, lowLatency: true, sessionIndication: true, directMixer: true},
 	}
 	// hw is the detected profile; verifyYAM sets it before anything renders.
 	hw = plumProfile

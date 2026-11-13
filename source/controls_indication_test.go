@@ -36,20 +36,49 @@ func TestUnavailableFeedbackDoesNotStarveIndication(t *testing.T) {
 	}
 }
 
-func TestIndicationRefreshRequiresFreshIdle(t *testing.T) {
-	c, _, s := testControls()
+// A solid artwork indication must keep repainting outside Alice's three-second
+// idle window: otherwise the frame painted before the artwork arrived stays on
+// the LEDs and a later track never recolours them. Only a profile that declares
+// sessionIndication (the original Mini) widens the gate.
+func TestIndicationRefreshFollowsActiveSession(t *testing.T) {
+	c, r, s := testControls()
+	c.cfg.sessionIndication = true
 	ctx := context.Background()
 	now := time.Now()
 	c.speechFreshUntil = now.Add(2 * time.Second)
+	r.s.Active = false
 	_ = c.tick(ctx, now)
+	if len(s.frames) != 0 {
+		t.Fatal("inactive session painted indication")
+	}
+	r.s.Active = true
+	_ = c.tick(ctx, now.Add(4*time.Second))
+	_ = c.tick(ctx, now.Add(5*time.Second))
+	if len(s.frames) < 2 {
+		t.Fatalf("active session refreshed indication %d times, want a repaint cadence", len(s.frames))
+	}
+	_ = c.speech(ctx, speechEvent{Phase: "idle"}, now.Add(6*time.Second))
+	_ = c.tick(ctx, now.Add(6*time.Second))
+	if len(s.frames) < 3 {
+		t.Fatal("fresh idle did not restore indication")
+	}
+}
+
+// A ring that only fills Alice's post-speech window keeps that window: an
+// active session alone must not take the LEDs over for the whole track.
+func TestIndicationStaysQuietOutsideAliceWindow(t *testing.T) {
+	c, r, s := testControls()
+	ctx := context.Background()
+	now := time.Now()
+	c.speechFreshUntil = now.Add(2 * time.Second)
+	r.s.Active = true
+	_ = c.tick(ctx, now)
+	if len(s.frames) != 1 {
+		t.Fatalf("Alice's window did not paint: %d frames", len(s.frames))
+	}
 	_ = c.tick(ctx, now.Add(4*time.Second))
 	if len(s.frames) != 1 {
-		t.Fatal("stale idle allowed a refresh")
-	}
-	_ = c.speech(ctx, speechEvent{Phase: "idle"}, now.Add(5*time.Second))
-	_ = c.tick(ctx, now.Add(5*time.Second))
-	if len(s.frames) != 2 {
-		t.Fatal("fresh idle did not restore indication")
+		t.Fatalf("active session took the ring over: %d frames", len(s.frames))
 	}
 }
 

@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"golang.org/x/image/tiff"
 )
 
 func writeCover(t *testing.T, dir, name string, c color.RGBA) string {
@@ -42,6 +44,127 @@ func parseHex(t *testing.T, s string) (int, int, int) {
 		t.Fatalf("colour %q: %v", s, err)
 	}
 	return int(v>>16) & 0xff, int(v>>8) & 0xff, int(v) & 0xff
+}
+
+// Apple sends artwork as TIFF in some streams; a cached .tif cover must still
+// produce a palette instead of leaving the placeholder colour on the LEDs.
+func TestCoverPaletteReadsTIFF(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 32, 32))
+	for y := 0; y < 32; y++ {
+		for x := 0; x < 32; x++ {
+			if x < 16 {
+				img.Set(x, y, color.RGBA{230, 120, 10, 255})
+			} else {
+				img.Set(x, y, color.RGBA{15, 40, 200, 255})
+			}
+		}
+	}
+	path := filepath.Join(t.TempDir(), "cover.tif")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tiff.Encode(f, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	cover, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cover.Close()
+	info, err := cover.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dominant, palette, ok := coverPaletteRGB(cover, info.Size(), 6)
+	if !ok || len(palette) != 2 {
+		t.Fatalf("TIFF palette = %v, ok = %t", palette, ok)
+	}
+	if dominant == [3]float64{} {
+		t.Fatal("TIFF dominant colour is black")
+	}
+}
+
+// Photo artwork is mostly a light background with a coloured subject. The
+// background must not win just because it covers the most pixels.
+func TestPaletteSkipsNeutralBackground(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			c := color.RGBA{245, 245, 246, 255}
+			if x >= 32 && y >= 32 {
+				c = color.RGBA{200, 20, 30, 255}
+			}
+			img.Set(x, y, c)
+		}
+	}
+	palette := paletteCoverRGB(img, 6)
+	if len(palette) == 0 {
+		t.Fatal("artwork with an accent produced no palette")
+	}
+	for _, c := range palette {
+		if _, sat, _ := rgbHSV(c[0], c[1], c[2]); sat < coverNeutralCutoff {
+			t.Fatalf("neutral background %v kept next to a chromatic accent", c)
+		}
+	}
+}
+
+// Two colour clusters in the artwork must reach two groups of zones: the
+// indication reflects the cover, not a single averaged tint.
+func TestSolidFrameSpreadsCoverPalette(t *testing.T) {
+	dir := t.TempDir()
+	img := image.NewRGBA(image.Rect(0, 0, 32, 32))
+	for y := 0; y < 32; y++ {
+		for x := 0; x < 32; x++ {
+			if x < 16 {
+				img.Set(x, y, color.RGBA{200, 20, 20, 255})
+			} else {
+				img.Set(x, y, color.RGBA{20, 20, 200, 255})
+			}
+		}
+	}
+	path := filepath.Join(dir, "cover-palette.png")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	cover, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cover.Close()
+	info, err := cover.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dominant, palette, ok := coverPaletteRGB(cover, info.Size(), 6)
+	if !ok || len(palette) != 2 {
+		t.Fatalf("palette = %v, ok = %t, want two clusters", palette, ok)
+	}
+	tap := newSpectrumTap(dir)
+	tap.gain = [3]float64{1, 1, 1}
+	tap.mu.Lock()
+	tap.palette = palette
+	tap.coverColor, tap.haveCoverColor = dominant, true
+	tap.mu.Unlock()
+	frame := tap.solidFrame(6, 200)
+	if len(frame) != 6 {
+		t.Fatalf("frame length %d", len(frame))
+	}
+	if frame[0] != frame[2] || frame[3] != frame[5] || frame[0] == frame[3] {
+		t.Fatalf("palette not spread over the zones: %v", frame)
+	}
+	for _, s := range frame {
+		r, g, b := parseHex(t, s)
+		if r < 100 && g < 100 && b < 100 {
+			t.Fatalf("palette colour %s is too dim to see", s)
+		}
+	}
 }
 
 func TestAdoptCoverClearsHueOnBlackArtwork(t *testing.T) {
