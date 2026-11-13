@@ -481,8 +481,8 @@ func configureSpectrum(d yamDevice, cfg controlsConfig, tap *spectrumTap) error 
 			fmt.Fprintf(os.Stderr, "airplay spectrum: stock LED colour profile %s\n", profile)
 		}
 	}
-	fmt.Fprintf(os.Stderr, "airplay spectrum: brightness %.2f (0=default), white balance %.2f/%.2f/%.2f, neutral black %t\n",
-		cfg.SpectrumBrightness, gain[0], gain[1], gain[2], neutralBlack)
+	fmt.Fprintf(os.Stderr, "airplay spectrum: brightness %.2f (0=default), white balance %.2f/%.2f/%.2f, neutral black %t, black floor %.2f\n",
+		cfg.SpectrumBrightness, gain[0], gain[1], gain[2], neutralBlack, floor)
 	return nil
 }
 
@@ -491,11 +491,15 @@ func configureSpectrum(d yamDevice, cfg controlsConfig, tap *spectrumTap) error 
 // clips; a black cover also must not leave AirPlay's ring completely dark.
 func spectrumComfort(d yamDevice) (floor, ceiling, saturation float64) {
 	ceiling, saturation = 1, 1
-	if d.Model == "yandexstation_2" {
+	switch d.Model {
+	case "yandexstation_2":
 		// A black cover keeps a faint violet glow; muted covers get more
 		// saturation because the panel's diffuser washes yellow into white.
+		floor, saturation = 0.07, 1.35
+	case "plum", "yandexplum":
+		// Lite 2 shows black artwork as true black by default; the owner wants
+		// the same faint violet as Station 2 instead of a dead ring.
 		floor = 0.07
-		saturation = 1.35
 	}
 	return floor, ceiling, saturation
 }

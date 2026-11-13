@@ -332,6 +332,7 @@ func (t *spectrumTap) solidFrame(n int, level uint8) []string {
 	rgb, haveColor := t.coverColor, t.haveCoverColor
 	palette := t.palette
 	gain, neutralBlack := t.gain, t.neutralBlack
+	blackFloor := t.blackFloor
 	t.mu.Unlock()
 	if !haveColor {
 		return nil
@@ -348,11 +349,11 @@ func (t *spectrumTap) solidFrame(n int, level uint8) []string {
 		// Spread the cover's clusters over the zones so a logo or ring reads
 		// as the artwork instead of one flat tint.
 		for i := range frame {
-			frame[i] = solidHex(palette[i*len(palette)/n], gain, scale, neutralBlack)
+			frame[i] = solidHex(palette[i*len(palette)/n], gain, scale, neutralBlack, blackFloor)
 		}
 		return frame
 	}
-	color := solidHex(rgb, gain, scale, neutralBlack)
+	color := solidHex(rgb, gain, scale, neutralBlack, blackFloor)
 	for i := range frame {
 		frame[i] = color
 	}
@@ -362,12 +363,19 @@ func (t *spectrumTap) solidFrame(n int, level uint8) []string {
 // solidHex converts one artwork colour to a frame entry. Match the spectrum
 // frame: a black cover stays dark instead of inventing a tint, except on the
 // model whose stock fallback is deliberately blue.
-func solidHex(rgb, gain [3]float64, scale float64, neutralBlack bool) string {
-	// A black cover stays off, or keeps the stock dark fallback on the model
-	// that has one; only a real artwork colour is lifted.
+func solidHex(rgb, gain [3]float64, scale float64, neutralBlack bool, blackFloor float64) string {
+	// A black cover stays off, keeps the stock dark fallback on Mini 2, or
+	// glows faint violet on Station 2 and Lite 2; only a real artwork colour
+	// is lifted.
 	dark := rgb == [3]float64{}
-	if dark && !neutralBlack {
+	switch {
+	case dark && !neutralBlack:
 		rgb = [3]float64{24.0 / 255, 32.0 / 255, 48.0 / 255}
+	case dark && blackFloor > 0:
+		// A solid frame has no PCM lift; twice the animated floor keeps the
+		// black-cover glow visible and matches the spectrum frame.
+		rgb = [3]float64{0.55, 0.30, 0.85}
+		scale *= 0.14
 	}
 	// A dark cover still has to read as its hue on the LEDs: lift the value
 	// to the visibility floor, the way the artwork tint is meant to be seen.
