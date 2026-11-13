@@ -92,6 +92,27 @@ func TestSpectrumLite2BlackGlow(t *testing.T) {
 	if got == "#000000" || !(b > r && r > g) {
 		t.Fatalf("Lite 2 animated black glow is not violet: %s", got)
 	}
+
+	// Covers saved as #0A0A0A used to escape the exact-zero check and get the
+	// 0.45 visibility lift, which read as washed white on the ring.
+	for _, near := range [][3]float64{{0x0A / 255.0, 0x0A / 255.0, 0x0A / 255.0}, {0.02, 0.025, 0.03}} {
+		tap.coverColor = near
+		got = tap.solidFrame(3, 200)[0]
+		r, g, b = parseHex(t, got)
+		if got == "#000000" || !(b >= r && b > g) {
+			t.Fatalf("near-black solid frame is not violet: %s", got)
+		}
+		if r+g+b > 90 {
+			t.Fatalf("near-black solid frame is washed out: %s", got)
+		}
+		tap.state.history = [4]float64{.3, .2, .1, .1}
+		got = tap.frame(1, 200)[0]
+		r, g, b = parseHex(t, got)
+		if !(b >= r && b > g) || r+g+b > 90 {
+			t.Fatalf("near-black animated frame is not dim violet: %s", got)
+		}
+		tap.state.history = [4]float64{}
+	}
 }
 
 func TestSpectrumStation2BlackGlowAndCeiling(t *testing.T) {

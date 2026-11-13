@@ -324,6 +324,13 @@ func (t *spectrumTap) playing(now time.Time) bool {
 // models that show a solid frame instead of the PCM spectrum, so a logo light
 // still follows the cover. It returns nil while no artwork is known, which lets
 // the caller keep its own fallback frame.
+// blackArtwork is deliberately a threshold, not an exact zero test: a cover
+// saved as #010101 or #0A0A0A is still black, and the 0.45 visibility lift
+// would render it as a washed grey instead of the model's black floor.
+func blackArtwork(rgb [3]float64) bool {
+	return math.Max(rgb[0], math.Max(rgb[1], rgb[2])) < 0.08
+}
+
 func (t *spectrumTap) solidFrame(n int, level uint8) []string {
 	if n <= 0 {
 		return nil
@@ -345,6 +352,13 @@ func (t *spectrumTap) solidFrame(n int, level uint8) []string {
 		scale = 1
 	}
 	frame := make([]string, n)
+	if blackArtwork(rgb) {
+		color := solidHex(rgb, gain, scale, neutralBlack, blackFloor)
+		for i := range frame {
+			frame[i] = color
+		}
+		return frame
+	}
 	if len(palette) > 1 {
 		// Spread the cover's clusters over the zones so a logo or ring reads
 		// as the artwork instead of one flat tint.
@@ -367,7 +381,7 @@ func solidHex(rgb, gain [3]float64, scale float64, neutralBlack bool, blackFloor
 	// A black cover stays off, keeps the stock dark fallback on Mini 2, or
 	// glows faint violet on Station 2 and Lite 2; only a real artwork colour
 	// is lifted.
-	dark := rgb == [3]float64{}
+	dark := blackArtwork(rgb)
 	switch {
 	case dark && !neutralBlack:
 		rgb = [3]float64{24.0 / 255, 32.0 / 255, 48.0 / 255}
@@ -403,7 +417,7 @@ func (t *spectrumTap) frame(n int, level uint8) []string {
 	if satBoost < 1 {
 		satBoost = 1
 	}
-	darkCover := haveColor && rgb == [3]float64{}
+	darkCover := haveColor && blackArtwork(rgb)
 	t.mu.Unlock()
 
 	scale := float64(level) / 200
@@ -446,7 +460,7 @@ func (t *spectrumTap) frame(n int, level uint8) []string {
 				cg = math.Min(1, math.Max(0, l+(cg-l)*satBoost))
 				cb = math.Min(1, math.Max(0, l+(cb-l)*satBoost))
 			}
-			if rgb == [3]float64{} {
+			if blackArtwork(rgb) {
 				switch {
 				case !neutralBlack:
 					cr, cg, cb = 24.0/255, 32.0/255, 48.0/255
